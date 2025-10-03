@@ -1,0 +1,41 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+*.log
+
+# CMake en colcon
+CMakeFiles/
+CMakeCache.txt
+colcon_install_layout.json
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor-specifiek
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specifiek
+.DS_Store
+Thumbs.db
+
+# Backup en tijdelijke bestanden
+*~
+*.bak
+*.tmp
+
+# Embedded Git repositories (als je ze niet als submodule gebruikt)
+depend/serial_ros2/.git/
+
+# Testresultaten
+test_results/
+*.testlog
+
+# Custom: uitsluiten van lokale configuratiebestanden
+config/local_*.yaml
+
