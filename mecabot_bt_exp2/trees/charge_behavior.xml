@@ -1,0 +1,12 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Fallback name="BatteryDecision">
+      <Sequence name="DriveSequence">
+        <CheckBattery/>
+        <Drive/>
+      </Sequence>
+      <GoCharge/>
+    </Fallback>
+  </BehaviorTree>
+</root>
+

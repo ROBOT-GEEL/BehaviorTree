@@ -1,0 +1,9 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="MainSequence">
+      <SayHello/>
+      <CheckBattery/>
+      <Drive/>
+    </Sequence>
+  </BehaviorTree>
+</root>
