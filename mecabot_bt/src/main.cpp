@@ -618,52 +618,75 @@ private:
 
 
 
-class DriveQuizLocation : public BT::SyncActionNode
+class DriveQuizLocation : public BT::StatefulActionNode
 {
 public:
-    DriveQuizLocation(const std::string &name) : BT::SyncActionNode(name, {})
+    DriveQuizLocation(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config)
+    {}
+
+    static BT::PortsList providedPorts()
     {
-        node_ = rclcpp::Node::make_shared("btDriveQuizLocation");
-
-        // bestaande publisher behouden
-        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-
-        // nieuwe publisher voor coördinaten
-        pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
+        return { BT::InputPort<double>("timeout") }; // timeout uit XML
     }
 
-    BT::NodeStatus tick() override
+    BT::NodeStatus onStart() override
     {
-        
-        std::string state = "DriveQuizLocation";
-        std_msgs::msg::String bt_msg;
-        bt_msg.data = state;
-        pub_bt_->publish(bt_msg);
-        std::cout << "[DriveQuizLocation] Published BT node state: " << state << std::endl;
+        node_ = rclcpp::Node::make_shared("btDriveQuizLocation");
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+        pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
 
+        // publiceer naam
+        std_msgs::msg::String bt_msg;
+        bt_msg.data = "DriveQuizLocation";
+        pub_bt_->publish(bt_msg);
+        std::cout << "[DriveQuizLocation] Published BT node state: DriveQuizLocation" << std::endl;
+
+        // publiceer coördinaat
         geometry_msgs::msg::PoseStamped coord_msg;
         coord_msg.header.stamp = node_->get_clock()->now();
-        coord_msg.header.frame_id = "map";  
-
+        coord_msg.header.frame_id = "map";
         coord_msg.pose.position.x = 5.0;
         coord_msg.pose.position.y = 2.5;
         coord_msg.pose.position.z = 0.0;
-
         coord_msg.pose.orientation.w = 1.0;
         coord_msg.pose.orientation.x = 0.0;
         coord_msg.pose.orientation.y = 0.0;
         coord_msg.pose.orientation.z = 0.0;
-
         pub_coord_->publish(coord_msg);
-        std::cout << "[DriveQuizLocation] Published coordinate to /btDriveCoord: ("
-                  << coord_msg.pose.position.x << ", "
-                  << coord_msg.pose.position.y << ", "
-                  << coord_msg.pose.position.z << ")" << std::endl;
+        std::cout << "[DriveQuizLocation] Published coordinate to /btDriveCoord" << std::endl;
 
-        return BT::NodeStatus::SUCCESS;
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 10.0; // default
+
+        start_time_ = std::chrono::steady_clock::now();
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        // wachten tot timeout verstreken
+        auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[DriveQuizLocation] Timeout reached (" << timeout_ << "s) -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        std::cout << "[DriveQuizLocation] Waiting... elapsed: " << elapsed << "s" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[DriveQuizLocation] HALTED" << std::endl;
     }
 
 private:
+    double timeout_;
+    std::chrono::steady_clock::time_point start_time_;
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;

@@ -19,7 +19,7 @@
             <!-- Linkerkid: CheckCollision -->
             <CheckCollision/>
 
-            <!-- Rechterkid: bestaande MainFallback (je eerdere boom) -->
+            <!-- Rechterkid: bestaande MainFallback  -->
             <Fallback name="MainFallback">
 
               <!-- Eerste tak: originele boom -->
@@ -40,11 +40,10 @@
                     <RobotExplore/>
                     <CheckCoordAvailable/>
                     <MoveToVisitor/>
-
+                    <check_ArrivedAtPerson timeout="15.0"/>
                     <robotAtPerson/>
                     <CheckStartButton timeout="10.0"/>
-                    <DriveQuizLocation/>
-                    <check_ArrivedAtPerson timeout="15.0"/>
+                    <DriveQuizLocation timeout="5.0"/>
                     <IsRobotAtQuiz timeout = "200.0"/>
                     <RobotAtQuiz/>
                     <WaitQuizToEnd timeout="10.0"/>
