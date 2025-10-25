@@ -56,8 +56,8 @@
               <Fallback name="GoToChargeFallback">
                 <InChargingStation/>
                 <Sequence name="GoToChargingSequence">
-                  <DriveToChargingStation/>
-                  <Check_At_ChargingStation timeout="5.0"/>
+                  <DriveToChargingStation timeout="5.0"/>
+                  <Check_At_ChargingStation timeout="200"/>
                 </Sequence>
               </Fallback>
 
