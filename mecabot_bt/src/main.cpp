@@ -4,6 +4,7 @@
 #include "std_msgs/msg/string.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include <iostream>
+#include <std_msgs/msg/float32.hpp> 
 
 using namespace std::chrono_literals;
 
@@ -175,10 +176,11 @@ private:
     double level_;
 };
 
-class BatteryOk : public BT::StatefulActionNode
+// KOPPEL ONDERAAN BIJ FACTORY.REGISTERNODE DEZE NODE AAN DE XML NODE VOOR SIMULATIE (FOUTEN SIMULEREN) 
+class BatterySimOk : public BT::StatefulActionNode
 {
 public:
-    BatteryOk(const std::string &name, const BT::NodeConfiguration &config)
+    BatterySimOk(const std::string &name, const BT::NodeConfiguration &config)
         : BT::StatefulActionNode(name, config), level_(100.0)
     {}
 
@@ -226,8 +228,66 @@ private:
     double level_;
 };
 
+// GEBRUIK DEZE BATTERIJCHECK VOOR DE ECHTE FUNCTIONALITEIT TE TESTEN
+class BatteryOk : public BT::StatefulActionNode
+{
+public:
+    BatteryOk(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config), battery_level_(100.0)
+    {
+        node_ = rclcpp::Node::make_shared("check_battery_node");
+        sub_ = node_->create_subscription<std_msgs::msg::Float32>(
+            "/PowerVoltage", 10,
+            [this](std_msgs::msg::Float32::SharedPtr msg)
+            {
+                battery_level_ = msg->data;
+            });
+    }
+
+    static BT::PortsList providedPorts() { return {}; }
+
+    BT::NodeStatus onStart() override
+    {
+        rclcpp::spin_some(node_);
+        std::cout << "[BatteryOk] Starting check, Level = " << battery_level_ << "%" << std::endl;
+
+        if (battery_level_ < 24.5)
+        {
+            std::cout << "[BatteryOk] Battery low! -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+        std::cout << "[BatteryOk] Battery level = " << battery_level_ << "%" << std::endl;
+
+        if (battery_level_ < 24.5)
+        {
+            std::cout << "[BatteryOk] Battery low! -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        // Blijft RUNNING zolang batterij ok is
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[BatteryOk] HALTED" << std::endl;
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_;
+    double battery_level_;
+};
 
 
+// Op termijn zal dit verwijdert worden wegens redundante info 
 class TimedCondition : public BT::StatefulActionNode
 {
 public:
@@ -753,6 +813,8 @@ int main(int argc, char **argv)
     BT::BehaviorTreeFactory factory;
 
     // registreer nodes
+    // < > geeft de naam van de c++ node, de (" ... ") geeft de naam van de node in de XML file waar je deze c++ code aan koppelt
+
     factory.registerNodeType<InWorkingZone>("InWorkingZone");
     factory.registerNodeType<MoveLocationWorkarea>("MoveLocationWorkarea");
     factory.registerNodeType<Check_at_workarea>("Check_at_workarea");
