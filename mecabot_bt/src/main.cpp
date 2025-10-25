@@ -407,24 +407,81 @@ private:
 };
 
 
-class DriveToChargingStation : public BT::SyncActionNode
+class DriveToChargingStation : public BT::StatefulActionNode
 {
 public:
-    DriveToChargingStation(const std::string &name) : BT::SyncActionNode(name, {}) {
-        node_ = rclcpp::Node::make_shared("btDriveToChargingStation");
-        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);}
-    BT::NodeStatus tick() override {
-      	std::string state = "DriveToChargingStation";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_->publish(msg);
-        std::cout << "[DriveToChargingStation] Drive to charging station" << std::endl;
-        return BT::NodeStatus::SUCCESS;
+    DriveToChargingStation(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config)
+    {}
+
+    static BT::PortsList providedPorts()
+    {
+        return { BT::InputPort<double>("timeout") }; // timeout uit XML
     }
-        private:
+    BT::NodeStatus onStart() override
+    {
+        node_ = rclcpp::Node::make_shared("btDriveChargingStation");
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+        pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
+
+        // publiceer naam
+        std_msgs::msg::String bt_msg;
+        bt_msg.data = "DriveChargingStation";
+        pub_bt_->publish(bt_msg);
+        std::cout << "[DriveToChargingStation] Published BT node state: DriveToChargingStation" << std::endl;
+
+        // publiceer coördinaat
+        geometry_msgs::msg::PoseStamped coord_msg;
+        coord_msg.header.stamp = node_->get_clock()->now();
+        coord_msg.header.frame_id = "map";
+        coord_msg.pose.position.x = 15.0;
+        coord_msg.pose.position.y = 12.5;
+        coord_msg.pose.position.z = 0.0;
+        coord_msg.pose.orientation.w = 1.0;
+        coord_msg.pose.orientation.x = 0.0;
+        coord_msg.pose.orientation.y = 0.0;
+        coord_msg.pose.orientation.z = 0.0;
+        pub_coord_->publish(coord_msg);
+        std::cout << "[DriveToChargingStation] Published coordinate to /btDriveCoord" << std::endl;
+
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 10.0; // default
+
+        start_time_ = std::chrono::steady_clock::now();
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        // wachten tot timeout verstreken
+        auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[DriveToChargingStation] Timeout reached (" << timeout_ << "s) -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        std::cout << "[DriveToChargingStation] Waiting... elapsed: " << elapsed << "s" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[DriveToChargingStation] HALTED" << std::endl;
+    }
+
+private:
+    double timeout_;
+    std::chrono::steady_clock::time_point start_time_;
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
 };
+
+
+
 
 
 class MoveLocationWorkarea : public BT::SyncActionNode
