@@ -5,6 +5,7 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include <iostream>
 #include <std_msgs/msg/float32.hpp> 
+#include <std_msgs/msg/bool.hpp>  
 
 using namespace std::chrono_literals;
 
@@ -365,21 +366,46 @@ public:
 class InChargingStation : public BT::SyncActionNode
 {
 public:
-    InChargingStation(const std::string &name) : BT::SyncActionNode(name, {}) {
-            node_ = rclcpp::Node::make_shared("btInChargingStation");
-        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);}
-    BT::NodeStatus tick() override {
-        	std::string state = "InChargingStation";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_->publish(msg);
-        std::cout << "[InChargingStation] Checking if in InChargingStation (sim)" << std::endl;
+    InChargingStation(const std::string &name)
+        : BT::SyncActionNode(name, {}), is_charging(false)
+    {
+        node_ = rclcpp::Node::make_shared("btInChargingStation");
+
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+
+        // Subscriber naar /robot_charging_flag
+        sub_ = node_->create_subscription<std_msgs::msg::Bool>(
+            "/robot_charging_flag", 10,
+            [this](std_msgs::msg::Bool::SharedPtr msg_in)
+            {
+                is_charging = msg_in->data;
+            });
+    }
+
+    BT::NodeStatus tick() override
+    {
+        std::string state = "InChargingStation";
+        std_msgs::msg::String msg_send;
+        msg_send.data = state;
+        pub_->publish(msg_send);
+
+
+        if (is_charging)
+        {
+            std::cout<< "[InChargingStation] Battery is charging !!! => SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+        std::cout<< "[InChargingStation] Battery is not charging !!! => FAILURE" << std::endl;
         return BT::NodeStatus::FAILURE;
     }
-        private:
+
+private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_;
+    bool is_charging;
 };
+
 
 class DriveToChargingStation : public BT::SyncActionNode
 {
