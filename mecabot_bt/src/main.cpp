@@ -766,44 +766,51 @@ private:
 };
 
 
-
 class DriveQuizLocation : public BT::StatefulActionNode
 {
 public:
     DriveQuizLocation(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config)
+        : BT::StatefulActionNode(name, config), received_ack_(false)
     {
         node_ = rclcpp::Node::make_shared("btDriveQuizLocation");
+
         pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
         pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
 
-        // Subscriber om te checken of de coordinaat topic update ontvangen is
-        sub_coord_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/btDriveCoord", 10,
-            [this](geometry_msgs::msg::PoseStamped::SharedPtr msg)
+        sub_ack_ = node_->create_subscription<std_msgs::msg::String>(
+            "/driveCoordStatus", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
             {
-                // Check timestamp van ontvangen bericht
-                if (msg->header.stamp == sent_coord_.header.stamp)
+                std::string expected = "Ontvangen " + sent_timestamp_;
+                if (msg->data == expected)
                 {
-                    received_coord_ = true;
+                    received_ack_ = true;
+                    std::cout << "[DriveQuizLocation] Correcte bevestiging ontvangen: " << msg->data << std::endl;
+                }
+                else
+                {
+                    std::cout << "[DriveQuizLocation] Onjuiste bevestiging ontvangen: " << msg->data
+                              << " (verwacht: " << expected << ")" << std::endl;
                 }
             });
     }
 
     static BT::PortsList providedPorts()
     {
-        return { BT::InputPort<double>("timeout") };
+        return {
+            BT::InputPort<double>("timeout"),
+            BT::OutputPort<std::string>("sent_timestamp")  // Timestamp naar blackboard
+        };
     }
 
     BT::NodeStatus onStart() override
     {
-        // Publiceer BT state
+        // Publish BT node status
         std_msgs::msg::String bt_msg;
         bt_msg.data = "DriveQuizLocation";
         pub_bt_->publish(bt_msg);
-        std::cout << "[DriveQuizLocation] Published BT node state: DriveQuizLocation" << std::endl;
 
-        // Publiceer coördinaat
+        // Publish coordinate
         sent_coord_.header.stamp = node_->get_clock()->now();
         sent_coord_.header.frame_id = "map";
         sent_coord_.pose.position.x = 5.0;
@@ -811,15 +818,21 @@ public:
         sent_coord_.pose.position.z = 0.0;
         sent_coord_.pose.orientation.w = 1.0;
         pub_coord_->publish(sent_coord_);
-        std::cout << "[DriveQuizLocation] Published coordinate to /btDriveCoord with timestamp: " 
-                  << sent_coord_.header.stamp.sec << "." << sent_coord_.header.stamp.nanosec << std::endl;
 
-        // Timeout ophalen uit XML
+        // timestamp opslaan
+        sent_timestamp_ = std::to_string(sent_coord_.header.stamp.sec) + "." +
+                          std::to_string(sent_coord_.header.stamp.nanosec);
+
+        // Opslaan in blackboard
+        setOutput("sent_timestamp", sent_timestamp_);
+
+        std::cout << "[DriveQuizLocation] Published coordinate at timestamp: " << sent_timestamp_ << std::endl;
+
         if (!getInput<double>("timeout", timeout_))
-            timeout_ = 5.0;  // default 5 seconden
+            timeout_ = 5.0;
 
         start_time_ = std::chrono::steady_clock::now();
-        received_coord_ = false;
+        received_ack_ = false;
 
         return BT::NodeStatus::RUNNING;
     }
@@ -827,23 +840,20 @@ public:
     BT::NodeStatus onRunning() override
     {
         rclcpp::spin_some(node_);
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
-        auto elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - start_time_).count();
-
-        if (received_coord_)
+        if (received_ack_)
         {
-            std::cout << "[DriveQuizLocation] Coordinate successfully received on topic -> SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS; // Ga naar volgende node (start rijden)
+            std::cout << "[DriveQuizLocation] Bevestiging ontvangen -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
         }
 
         if (elapsed >= timeout_)
         {
-            std::cout << "[DriveQuizLocation] Timeout reached without receiving coordinate -> FAILURE" << std::endl;
-            return BT::NodeStatus::FAILURE;
+            std::cout << "[DriveQuizLocation] Timeout (" << timeout_ << "s) -> SUCCESS (simulatie)" << std::endl;
+            return BT::NodeStatus::SUCCESS;
         }
 
-        std::cout << "[DriveQuizLocation] Waiting for coordinate... elapsed: " << elapsed << "s" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
@@ -854,41 +864,32 @@ public:
 
 private:
     double timeout_;
+    bool received_ack_;
+    std::string sent_timestamp_;
     std::chrono::steady_clock::time_point start_time_;
+    geometry_msgs::msg::PoseStamped sent_coord_;
+
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_coord_;
-
-    geometry_msgs::msg::PoseStamped sent_coord_;
-    bool received_coord_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_ack_;
 };
-
 
 
 class IsRobotAtQuiz : public BT::StatefulActionNode
 {
 public:
     IsRobotAtQuiz(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config),
-          timeout_(10.0),
-          success_received_(false),
-          failure_received_(false)
+        : BT::StatefulActionNode(name, config), timeout_(10.0),
+          success_received_(false), failure_received_(false)
     {
-        // Maak ROS2 node en subscriber
         node_ = rclcpp::Node::make_shared("btIsRobotAtQuiz");
+
         sub_ = node_->create_subscription<std_msgs::msg::String>(
             "/driveCoordStatus", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
-                if (msg->data == "") {
-                    success_received_ = true;
-                    failure_received_ = false;
-                }
-                else if(msg->data == " "){
-                    success_received_ = false;
-                    failure_received_ = true;
-                }
+                last_received_msg_ = msg->data;
             });
 
         pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
@@ -896,58 +897,55 @@ public:
 
     static BT::PortsList providedPorts()
     {
-        // timeout komt uit XML
-        return { BT::InputPort<double>("timeout") };
+        return {
+            BT::InputPort<double>("timeout"),
+            BT::InputPort<std::string>("sent_timestamp")  // Timestamp uit blackboard
+        };
     }
 
     BT::NodeStatus onStart() override
     {
-        // Reset flags en start timer
         success_received_ = false;
         failure_received_ = false;
         start_time_ = std::chrono::steady_clock::now();
 
-        if (!getInput<double>("timeout", timeout_)) {
+        if (!getInput<double>("timeout", timeout_))
             timeout_ = 10.0;
-        }
 
-        // Publiceer start
+        if (!getInput<std::string>("sent_timestamp", sent_timestamp_))
+            std::cout << "[IsRobotAtQuiz] Geen timestamp ontvangen van blackboard!" << std::endl;
+        else
+            std::cout << "[IsRobotAtQuiz] Verwachte timestamp = " << sent_timestamp_ << std::endl;
+
         std_msgs::msg::String msg;
         msg.data = "IsRobotAtQuiz";
         pub_->publish(msg);
-
-        std::cout << "[IsRobotAtQuiz] START monitoring /quiz_status for 'succesfullyDriven' (timeout "
-                  << timeout_ << "s)" << std::endl;
 
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus onRunning() override
     {
-        rclcpp::spin_some(node_);  // Laat ROS2 callbacks lopen
+        rclcpp::spin_some(node_);
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
-        auto elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - start_time_).count();
-
-        if (success_received_)
+        // Check of driveCoordStatus een bericht heeft met timestamp
+        if (!sent_timestamp_.empty())
         {
-            std::cout << "[IsRobotAtQuiz] Received 'succesfullyDriven' -> SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS;
+            std::string expected = "Ontvangen " + sent_timestamp_;
+            if (last_received_msg_ == expected)
+            {
+                std::cout << "[IsRobotAtQuiz] Correcte bevestiging ontvangen -> SUCCESS" << std::endl;
+                return BT::NodeStatus::SUCCESS;
+            }
         }
-        
-	else if (failure_received_){
-	    std::cout << "[IsRobotAtQuiz] Failure 'succesfullyDriven' -> FAILURE" << std::endl;
-            return BT::NodeStatus::FAILURE;
-	}
-	
-	
+
         if (elapsed >= timeout_)
         {
-            std::cout << "[IsRobotAtQuiz] Timeout (" << timeout_ << "s) reached -> FAILURE" << std::endl;
+            std::cout << "[IsRobotAtQuiz] Timeout (" << timeout_ << "s) -> FAILURE" << std::endl;
             return BT::NodeStatus::FAILURE;
         }
 
-        std::cout << "[IsRobotAtQuiz] Waiting... elapsed: " << elapsed << "s" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
@@ -961,11 +959,15 @@ private:
     bool success_received_;
     bool failure_received_;
     std::chrono::steady_clock::time_point start_time_;
+    std::string sent_timestamp_;
+    std::string last_received_msg_;
 
     rclcpp::Node::SharedPtr node_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
+
+
 
 class RobotAtQuiz : public BT::SyncActionNode
 {
