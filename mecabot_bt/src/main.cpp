@@ -773,10 +773,21 @@ public:
     DriveQuizLocation(const std::string &name, const BT::NodeConfiguration &config)
         : BT::StatefulActionNode(name, config)
     {
-        // Node en publishers in constructor
         node_ = rclcpp::Node::make_shared("btDriveQuizLocation");
         pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
         pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
+
+        // Subscriber om te checken of de coordinaat topic update ontvangen is
+        sub_coord_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/btDriveCoord", 10,
+            [this](geometry_msgs::msg::PoseStamped::SharedPtr msg)
+            {
+                // Check timestamp van ontvangen bericht
+                if (msg->header.stamp == sent_coord_.header.stamp)
+                {
+                    received_coord_ = true;
+                }
+            });
     }
 
     static BT::PortsList providedPorts()
@@ -786,42 +797,53 @@ public:
 
     BT::NodeStatus onStart() override
     {
-        // Publiceer naam
+        // Publiceer BT state
         std_msgs::msg::String bt_msg;
         bt_msg.data = "DriveQuizLocation";
         pub_bt_->publish(bt_msg);
         std::cout << "[DriveQuizLocation] Published BT node state: DriveQuizLocation" << std::endl;
 
         // Publiceer coördinaat
-        geometry_msgs::msg::PoseStamped coord_msg;
-        coord_msg.header.stamp = node_->get_clock()->now();
-        coord_msg.header.frame_id = "map";
-        coord_msg.pose.position.x = 5.0;
-        coord_msg.pose.position.y = 2.5;
-        coord_msg.pose.position.z = 0.0;
-        coord_msg.pose.orientation.w = 1.0;
-        pub_coord_->publish(coord_msg);
-        std::cout << "[DriveQuizLocation] Published coordinate to /btDriveCoord" << std::endl;
+        sent_coord_.header.stamp = node_->get_clock()->now();
+        sent_coord_.header.frame_id = "map";
+        sent_coord_.pose.position.x = 5.0;
+        sent_coord_.pose.position.y = 2.5;
+        sent_coord_.pose.position.z = 0.0;
+        sent_coord_.pose.orientation.w = 1.0;
+        pub_coord_->publish(sent_coord_);
+        std::cout << "[DriveQuizLocation] Published coordinate to /btDriveCoord with timestamp: " 
+                  << sent_coord_.header.stamp.sec << "." << sent_coord_.header.stamp.nanosec << std::endl;
 
+        // Timeout ophalen uit XML
         if (!getInput<double>("timeout", timeout_))
-            timeout_ = 10.0;
+            timeout_ = 5.0;  // default 5 seconden
 
         start_time_ = std::chrono::steady_clock::now();
+        received_coord_ = false;
+
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus onRunning() override
     {
+        rclcpp::spin_some(node_);
+
         auto elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start_time_).count();
 
-        if (elapsed >= timeout_)
+        if (received_coord_)
         {
-            std::cout << "[DriveQuizLocation] Timeout reached (" << timeout_ << "s) -> SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS;
+            std::cout << "[DriveQuizLocation] Coordinate successfully received on topic -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS; // Ga naar volgende node (start rijden)
         }
 
-        std::cout << "[DriveQuizLocation] Waiting... elapsed: " << elapsed << "s" << std::endl;
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[DriveQuizLocation] Timeout reached without receiving coordinate -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        std::cout << "[DriveQuizLocation] Waiting for coordinate... elapsed: " << elapsed << "s" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
@@ -836,6 +858,10 @@ private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr sub_coord_;
+
+    geometry_msgs::msg::PoseStamped sent_coord_;
+    bool received_coord_;
 };
 
 

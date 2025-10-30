@@ -33,20 +33,20 @@
                       <InWorkingZone/>
                       <Sequence name="GoToWorkAreaSequence">
                         <MoveLocationWorkarea/>
-                        <Check_at_workarea timeout="5.0"/>
+                        <Check_at_workarea timeout="1.0"/>
                       </Sequence>
                     </Fallback>
 
                     <RobotExplore/>
                     <CheckCoordAvailable/>
                     <MoveToVisitor/>
-                    <check_ArrivedAtPerson timeout="15.0"/>
+                    <check_ArrivedAtPerson timeout="1.0"/>
                     <robotAtPerson/>
-                    <CheckStartButton timeout="10.0"/>
-                    <DriveQuizLocation timeout="5.0"/>
-                    <IsRobotAtQuiz timeout = "200.0"/>
+                    <CheckStartButton timeout="1.0"/>
+                    <DriveQuizLocation timeout="10.0"/>
+                    <IsRobotAtQuiz timeout = "10.0"/>
                     <RobotAtQuiz/>
-                    <WaitQuizToEnd timeout="10.0"/>
+                    <WaitQuizToEnd timeout="5.0"/>
 
                   </Sequence>
                 </ForceSuccess>
