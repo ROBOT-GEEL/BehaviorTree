@@ -507,13 +507,13 @@ class RobotExplore : public BT::SyncActionNode
 public:
     RobotExplore(const std::string &name) : BT::SyncActionNode(name, {}) {
     node_ = rclcpp::Node::make_shared("btRobotExplore");
-    pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/quiz_pi_con", 10);
+    pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
     pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 
 
     }
     BT::NodeStatus tick() override {
-    	std::string state = "exploring";
+    	std::string state = "RobotExplore";
     	std_msgs::msg::String msg;
         msg.data = state;
         pub_quiz_->publish(msg);
@@ -558,22 +558,36 @@ class MoveToVisitor : public BT::SyncActionNode
 {
 public:
     MoveToVisitor(const std::string &name) : BT::SyncActionNode(name, {}) {
-            node_ = rclcpp::Node::make_shared("btMoveToVisitor");
-        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-}
-    BT::NodeStatus tick() override {
-        	std::string state = "MoveToVisitor";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_->publish(msg);
+        node_ = rclcpp::Node::make_shared("btMoveToVisitor");
+        
+        // Publisher voor BehaviorTreeNode
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 
-        std::cout << "[MoveToVisitor] Moving to visitor (sim)" << std::endl;
+        // Extra publisher voor quiz status (zoals bij RobotExplore)
+        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
+    }
+
+    BT::NodeStatus tick() override {
+        std::string bt_state = "MoveToVisitor";
+        std_msgs::msg::String bt_msg;
+        bt_msg.data = bt_state;
+        pub_bt_->publish(bt_msg);
+
+        std::string quiz_state = "RobotGoToVisitors";
+        std_msgs::msg::String quiz_msg;
+        quiz_msg.data = quiz_state;
+        pub_quiz_->publish(quiz_msg);
+
+        std::cout << "[MoveToVisitor] Moving to visitor (sim), published to /rpitopic and /BehaviorTreeNode" << std::endl;
         return BT::NodeStatus::SUCCESS;
     }
-        private:
+
+private:
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_quiz_;
 };
+
 
 class Check_At_ChargingStation: public BT::StatefulActionNode
 {
@@ -681,11 +695,11 @@ class robotAtPerson : public BT::SyncActionNode
 public:
     robotAtPerson(const std::string &name) : BT::SyncActionNode(name, {}) {
     node_ = rclcpp::Node::make_shared("btRobotAtPerson");
-    pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/quiz_pi_con", 10);
+    pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
             pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 }
     BT::NodeStatus tick() override {
-    	std::string state = "robot-arrived-at-visitors";
+    	std::string state = "RobotArrivedAtVisitors";
     	std_msgs::msg::String msg;
         msg.data = state;
         pub_quiz_->publish(msg);
@@ -976,7 +990,7 @@ public:
         node_ = rclcpp::Node::make_shared("bt_robot_at_quiz_node");
 
         // Bestaande publisher behouden
-        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/quiz_pi_con", 10);
+        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
 
         // Nieuwe publisher voor BehaviorTree-node status
         pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
