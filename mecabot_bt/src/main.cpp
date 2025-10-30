@@ -6,6 +6,8 @@
 #include <iostream>
 #include <std_msgs/msg/float32.hpp> 
 #include <std_msgs/msg/bool.hpp>  
+#include <geometry_msgs/msg/twist.hpp>
+
 
 using namespace std::chrono_literals;
 
@@ -234,14 +236,14 @@ class BatteryOk : public BT::StatefulActionNode
 {
 public:
     BatteryOk(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config), battery_level_(100.0)
+        : BT::StatefulActionNode(name, config)
     {
-        node_ = rclcpp::Node::make_shared("bt_check_battery_node");
-        sub_ = node_->create_subscription<std_msgs::msg::Float32>(
-            "/PowerVoltage", 10,
-            [this](std_msgs::msg::Float32::SharedPtr msg)
+        node_ = rclcpp::Node::make_shared("bt_BatteryOk_node");
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/auto_recharge_event", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
             {
-                battery_level_ = msg->data;
+                last_event_ = msg->data;
             });
     }
 
@@ -250,29 +252,26 @@ public:
     BT::NodeStatus onStart() override
     {
         rclcpp::spin_some(node_);
-        std::cout << "[BatteryOk] Starting check, Level = " << battery_level_ << "%" << std::endl;
+        std::cout << "[BatteryOk] START, last_event=" << last_event_ << std::endl;
 
-        if (battery_level_ < 24.5)
+        if (last_event_ == "BATTERY-LOW")
         {
-            std::cout << "[BatteryOk] Battery low! -> FAILURE" << std::endl;
+            std::cout << "[BatteryOk] Battery low -> FAILURE" << std::endl;
             return BT::NodeStatus::FAILURE;
         }
-
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus onRunning() override
     {
         rclcpp::spin_some(node_);
-        std::cout << "[BatteryOk] Battery level = " << battery_level_ << "%" << std::endl;
-
-        if (battery_level_ < 24.5)
+        if (last_event_ == "BATTERY-LOW")
         {
-            std::cout << "[BatteryOk] Battery low! -> FAILURE" << std::endl;
+            std::cout << "[BatteryOk] Battery low detected -> FAILURE" << std::endl;
             return BT::NodeStatus::FAILURE;
         }
 
-        // Blijft RUNNING zolang batterij ok is
+        std::cout << "[BatteryOk] Battery OK -> RUNNING" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
@@ -282,9 +281,9 @@ public:
     }
 
 private:
+    std::string last_event_;
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_;
-    double battery_level_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
 };
 
 
@@ -411,12 +410,19 @@ class DriveToChargingStation : public BT::StatefulActionNode
 {
 public:
     DriveToChargingStation(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config)
+        : BT::StatefulActionNode(name, config),
+          success_received_(false), timeout_(5.0)
     {
-        // Node en publishers aanmaken in constructor
-        node_ = rclcpp::Node::make_shared("btDriveChargingStation");
-        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-        pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
+        node_ = rclcpp::Node::make_shared("btDriveToChargingStation");
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/auto_recharge_event", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
+            {
+                if (msg->data == "DRIVING-TO-DOCK")
+                    success_received_ = true;
+            });
+
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
     }
 
     static BT::PortsList providedPorts()
@@ -426,58 +432,76 @@ public:
 
     BT::NodeStatus onStart() override
     {
-        // Publiceer naam
-        std_msgs::msg::String bt_msg;
-        bt_msg.data = "DriveChargingStation";
-        pub_bt_->publish(bt_msg);
-        std::cout << "[DriveToChargingStation] Published BT node state: DriveChargingStation" << std::endl;
-
-        // Publiceer coördinaat
-        geometry_msgs::msg::PoseStamped coord_msg;
-        coord_msg.header.stamp = node_->get_clock()->now();
-        coord_msg.header.frame_id = "map";
-        coord_msg.pose.position.x = 15.0;
-        coord_msg.pose.position.y = 12.5;
-        coord_msg.pose.position.z = 0.0;
-        coord_msg.pose.orientation.w = 1.0;
-        pub_coord_->publish(coord_msg);
-        std::cout << "[DriveToChargingStation] Published coordinate to /btDriveCoord" << std::endl;
-
-        if (!getInput<double>("timeout", timeout_))
-            timeout_ = 10.0;
-
+        success_received_ = false;
         start_time_ = std::chrono::steady_clock::now();
+        getInput("timeout", timeout_);
+        std_msgs::msg::String msg;
+        msg.data = "DriveToChargingStation";
+        pub_->publish(msg);
+        std::cout << "[DriveToChargingStation] START waiting for DRIVING-TO-DOCK" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus onRunning() override
     {
+        rclcpp::spin_some(node_);
+        if (success_received_)
+        {
+            std::cout << "[DriveToChargingStation] Received DRIVING-TO-DOCK -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
         auto elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start_time_).count();
 
         if (elapsed >= timeout_)
         {
-            std::cout << "[DriveToChargingStation] Timeout reached (" << timeout_ << "s) -> SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS;
+            std::cout << "[DriveToChargingStation] Timeout reached -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
         }
 
-        std::cout << "[DriveToChargingStation] Waiting... elapsed: " << elapsed << "s" << std::endl;
+        std::cout << "[DriveToChargingStation] Waiting... elapsed=" << elapsed << "s" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
-
     void onHalted() override
     {
         std::cout << "[DriveToChargingStation] HALTED" << std::endl;
     }
 
 private:
+    bool success_received_;
     double timeout_;
     std::chrono::steady_clock::time_point start_time_;
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
 
+class BatteryStopDrive : public BT::SyncActionNode
+{
+public:
+    BatteryStopDrive(const std::string &name) : BT::SyncActionNode(name, {})
+    {
+        node_ = rclcpp::Node::make_shared("btBatteryStopDrive");
+        pub_speed_ = node_->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+    }
+
+    BT::NodeStatus tick() override
+    {
+        geometry_msgs::msg::Twist stop_msg;
+        stop_msg.linear.x = 0.0;
+        stop_msg.angular.z = 0.0;
+        pub_speed_->publish(stop_msg);
+
+        std::cout << "[BatteryStopDrive] Robot stopped" << std::endl;
+        return BT::NodeStatus::SUCCESS;
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pub_speed_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_goal_;
+};
 
 
 
@@ -589,29 +613,19 @@ private:
 };
 
 
-class Check_At_ChargingStation: public BT::StatefulActionNode
+class StatusDriveToChargingDock : public BT::StatefulActionNode
 {
 public:
-    Check_At_ChargingStation(const std::string &name, const BT::NodeConfiguration &config)
+    StatusDriveToChargingDock(const std::string &name, const BT::NodeConfiguration &config)
         : BT::StatefulActionNode(name, config),
-          timeout_(10.0),
-          success_received_(false),
-          failure_received_(false)
+          status_(""), timeout_(5.0)
     {
-        // Maak ROS2 node en subscriber
-        node_ = rclcpp::Node::make_shared("btCheckAtChargingStation");
+        node_ = rclcpp::Node::make_shared("btStatusDriveToChargingDock");
         sub_ = node_->create_subscription<std_msgs::msg::String>(
-            "/driveCoordStatus", 10,
+            "/auto_recharge_event", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
-                if (msg->data == "") {
-                    success_received_ = true;
-                    failure_received_ = false;
-                }
-                else if(msg->data == " "){
-                    success_received_ = false;
-                    failure_received_ = true;
-                }
+                status_ = msg->data;
             });
 
         pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
@@ -619,76 +633,173 @@ public:
 
     static BT::PortsList providedPorts()
     {
-        // timeout komt uit XML
         return { BT::InputPort<double>("timeout") };
     }
 
     BT::NodeStatus onStart() override
     {
-        // Reset flags en start timer
-        success_received_ = false;
-        failure_received_ = false;
+        getInput("timeout", timeout_);
         start_time_ = std::chrono::steady_clock::now();
-
-        if (!getInput<double>("timeout", timeout_)) {
-            timeout_ = 10.0;
-        }
-
-        // Publiceer start
         std_msgs::msg::String msg;
-        msg.data = "checkAtChargingStation";
+        msg.data = "StatusDriveToChargingDock";
         pub_->publish(msg);
-
-        std::cout << "[Check_At_ChargingStation] START monitoring driveCoordStatus"
-                  << timeout_ << "s)" << std::endl;
-
         return BT::NodeStatus::RUNNING;
     }
 
     BT::NodeStatus onRunning() override
     {
-        rclcpp::spin_some(node_);  // Laat ROS2 callbacks lopen
+        rclcpp::spin_some(node_);
+
+        if (status_ == "DRIVE-TO-DOCK-SUCCESS")
+        {
+            std::cout << "[StatusDriveToChargingDock] SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+        else if (status_ == "DRIVE-TO-DOCK-FAILED" || status_ == "DRIVE-TO-DOCK-CANCELED")
+        {
+            std::cout << "[StatusDriveToChargingDock] FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
 
         auto elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start_time_).count();
 
-        if (success_received_)
-        {
-            std::cout << "[Check_At_ChargingStation] Received 'arrived' -> SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS;
-        }
-        
-	else if (failure_received_){
-	    std::cout << "[Check_At_ChargingStation] Failure received -> FAILURE" << std::endl;
-            return BT::NodeStatus::FAILURE;
-	}
-	
-	
         if (elapsed >= timeout_)
         {
-            std::cout << "[Check_At_ChargingStation] Timeout (" << timeout_ << "s) reached -> FAILURE" << std::endl;
+            std::cout << "[StatusDriveToChargingDock] Timeout -> FAILURE" << std::endl;
             return BT::NodeStatus::FAILURE;
         }
 
-        std::cout << "[Check_At_ChargingStation] Waiting... elapsed: " << elapsed << "s" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
-    void onHalted() override
-    {
-        std::cout << "[Check_At_ChargingStation] HALTED" << std::endl;
+    void onHalted() override {
+        std::cout << "[StatusDriveToChargingDock] HALTED" << std::endl;
     }
 
-private:
-    double timeout_;
-    bool success_received_;
-    bool failure_received_;
-    std::chrono::steady_clock::time_point start_time_;
 
+private:
+    std::string status_;
+    double timeout_;
+    std::chrono::steady_clock::time_point start_time_;
     rclcpp::Node::SharedPtr node_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
+
+class IsRobotCharging : public BT::StatefulActionNode
+{
+public:
+    IsRobotCharging(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config),
+          event_(""), timeout_(200.0)
+    {
+        node_ = rclcpp::Node::make_shared("btIsRobotCharging");
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/auto_recharge_event", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
+            {
+                event_ = msg->data;
+            });
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return { BT::InputPort<double>("timeout") };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        getInput("timeout", timeout_);
+        start_time_ = std::chrono::steady_clock::now();
+        std_msgs::msg::String msg;
+        msg.data = "IsRobotCharging";
+        pub_->publish(msg);
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+
+        if (event_ == "DOCKING-FAILED")
+            return BT::NodeStatus::FAILURE;
+
+        if (event_ == "ROBOT-CHARGING")
+            return BT::NodeStatus::SUCCESS;
+
+        auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[IsRobotCharging] Timeout reached -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+    void onHalted() override {
+        std::cout << "[IsRobotCharging] HALTED" << std::endl;
+    }
+
+
+private:
+    std::string event_;
+    double timeout_;
+    std::chrono::steady_clock::time_point start_time_;
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+};
+
+class IsBatteryFull : public BT::StatefulActionNode
+{
+public:
+    IsBatteryFull(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config)
+    {
+        node_ = rclcpp::Node::make_shared("btBatteryFull");
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/auto_recharge_event", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
+            {
+                last_event_ = msg->data;
+            });
+    }
+
+    static BT::PortsList providedPorts() { return {}; }
+
+    BT::NodeStatus onStart() override
+    {
+        rclcpp::spin_some(node_);
+        if (last_event_ == "CHARGING-COMPLETED")
+        {
+            std::cout << "[IsBatteryFull] CHARGING COMPLETED -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+        if (last_event_ == "CHARGING-COMPLETED")
+            return BT::NodeStatus::SUCCESS;
+        return BT::NodeStatus::RUNNING;
+    }
+    void onHalted() override {
+        std::cout << "[IsBatteryFull] HALTED" << std::endl;
+    }
+
+
+private:
+    std::string last_event_;
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+};
+
 
 class robotAtPerson : public BT::SyncActionNode
 {
@@ -1020,6 +1131,13 @@ private:
 };
 
 
+class BatteryCharged: public TimedCondition 
+{ 
+public: 
+     BatteryCharged(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
+     };
+
+
 // -------------------------
 // Timer nodes (met timeout uit XML)
 // -------------------------
@@ -1068,7 +1186,11 @@ int main(int argc, char **argv)
     factory.registerNodeType<BatteryOk>("BatteryOk");
     factory.registerNodeType<InChargingStation>("InChargingStation");
     factory.registerNodeType<DriveToChargingStation>("DriveToChargingStation");
-    factory.registerNodeType<Check_At_ChargingStation>("Check_At_ChargingStation");
+    factory.registerNodeType<StatusDriveToChargingDock>("StatusDriveToChargingDock");
+    factory.registerNodeType<IsRobotCharging>("IsRobotCharging");
+    factory.registerNodeType<IsBatteryFull>("IsBatteryFull");
+    factory.registerNodeType<BatteryCharged>("BatteryCharged");
+    factory.registerNodeType<BatteryStopDrive>("BatteryStopDrive");
     factory.registerNodeType<CheckCollision>("CheckCollision");
     factory.registerNodeType<CheckNetworkError>("CheckNetworkError");
     factory.registerNodeType<StopNode>("StopNode");

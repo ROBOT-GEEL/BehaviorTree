@@ -19,7 +19,7 @@
             <!-- Linkerkid: CheckCollision -->
             <CheckCollision/>
 
-            <!-- Rechterkid: bestaande MainFallback  -->
+            <!-- Rechterkid: bestaande MainFallback -->
             <Fallback name="MainFallback">
 
               <!-- Eerste tak: originele boom -->
@@ -43,8 +43,8 @@
                     <check_ArrivedAtPerson timeout="1.0"/>
                     <robotAtPerson/>
                     <CheckStartButton timeout="1.0"/>
-		    <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
-		    <IsRobotAtQuiz timeout="10.0" sent_timestamp="{quiz_timestamp}" />
+                    <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
+                    <IsRobotAtQuiz timeout="10.0" sent_timestamp="{quiz_timestamp}" />
                     <RobotAtQuiz/>
                     <WaitQuizToEnd timeout="5.0"/>
 
@@ -52,13 +52,16 @@
                 </ForceSuccess>
               </Parallel>
 
-              <!-- Tweede tak: wat te doen bij batterij failure -->
+              <!-- Tweede tak: aangepaste batterij fallback -->
               <Fallback name="GoToChargeFallback">
-                <InChargingStation/>
-                <Sequence name="GoToChargingSequence">
+                <Sequence name="ChargingSequence">
                   <DriveToChargingStation timeout="5.0"/>
-                  <Check_At_ChargingStation timeout="200"/>
+                  <StatusDriveToChargingDock timeout="5.0"/>
+                  <IsRobotCharging timeout="200"/>
+                  <IsBatteryFull/>
+                  <BatteryCharged timeout="5"/>
                 </Sequence>
+                <BatteryStopDrive/>
               </Fallback>
 
             </Fallback>
