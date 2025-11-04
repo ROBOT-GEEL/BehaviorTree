@@ -895,7 +895,7 @@ class DriveQuizLocation : public BT::StatefulActionNode
 {
 public:
     DriveQuizLocation(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config), received_ack_(false)
+        : BT::StatefulActionNode(name, config), received_success_(false)
     {
         node_ = rclcpp::Node::make_shared("btDriveQuizLocation");
 
@@ -906,16 +906,52 @@ public:
             "/driveCoordStatus", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
-                std::string expected = "Ontvangen " + sent_timestamp_;
-                if (msg->data == expected)
+                // Verwacht formaat: "<status>-<timestamp>-goal verzonden"
+                std::string data = msg->data;
+                std::cout << "[DriveQuizLocation] Ontvangen bericht: " << data << std::endl;
+
+                // Split op '-'
+                std::vector<std::string> parts;
+                std::stringstream ss(data);
+                std::string segment;
+                while (std::getline(ss, segment, '-'))
                 {
-                    received_ack_ = true;
-                    std::cout << "[DriveQuizLocation] Correcte bevestiging ontvangen: " << msg->data << std::endl;
+                    parts.push_back(segment);
+                }
+
+                if (parts.size() < 3)
+                {
+                    std::cout << "[DriveQuizLocation] Ongeldig formaat ontvangen." << std::endl;
+                    return;
+                }
+
+                std::string status_code = parts[0];
+                std::string recv_timestamp = parts[1];
+
+                // Alleen eerste 10 cijfers vóór de punt vergelijken
+                std::string sent_prefix = sent_timestamp_.substr(0, 10);
+                std::string recv_prefix = recv_timestamp.substr(0, 10);
+
+                if (recv_prefix == sent_prefix)
+                {
+                    std::cout << "[DriveQuizLocation] Timestamp komt overeen ("
+                              << recv_prefix << ")" << std::endl;
+
+                    if (status_code == "04")
+                    {
+                        received_success_ = true;
+                        std::cout << "[DriveQuizLocation] Successtatus ontvangen (04)" << std::endl;
+                    }
+                    else
+                    {
+                        std::cout << "[DriveQuizLocation] Statuscode " << status_code
+                                  << " ontvangen, nog niet succesvol." << std::endl;
+                    }
                 }
                 else
                 {
-                    std::cout << "[DriveQuizLocation] Onjuiste bevestiging ontvangen: " << msg->data
-                              << " (verwacht: " << expected << ")" << std::endl;
+                    std::cout << "[DriveQuizLocation] Timestamp mismatch: ontvangen "
+                              << recv_prefix << " verwacht " << sent_prefix << std::endl;
                 }
             });
     }
@@ -924,7 +960,7 @@ public:
     {
         return {
             BT::InputPort<double>("timeout"),
-            BT::OutputPort<std::string>("sent_timestamp")  // Timestamp naar blackboard
+            BT::OutputPort<std::string>("sent_timestamp")
         };
     }
 
@@ -944,7 +980,7 @@ public:
         sent_coord_.pose.orientation.w = 1.0;
         pub_coord_->publish(sent_coord_);
 
-        // timestamp opslaan
+        // Timestamp opslaan
         sent_timestamp_ = std::to_string(sent_coord_.header.stamp.sec) + "." +
                           std::to_string(sent_coord_.header.stamp.nanosec);
 
@@ -957,7 +993,7 @@ public:
             timeout_ = 5.0;
 
         start_time_ = std::chrono::steady_clock::now();
-        received_ack_ = false;
+        received_success_ = false;
 
         return BT::NodeStatus::RUNNING;
     }
@@ -967,9 +1003,9 @@ public:
         rclcpp::spin_some(node_);
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
-        if (received_ack_)
+        if (received_success_)
         {
-            std::cout << "[DriveQuizLocation] Bevestiging ontvangen -> SUCCESS" << std::endl;
+            std::cout << "[DriveQuizLocation] Succesbevestiging ontvangen -> SUCCESS" << std::endl;
             return BT::NodeStatus::SUCCESS;
         }
 
@@ -989,7 +1025,7 @@ public:
 
 private:
     double timeout_;
-    bool received_ack_;
+    bool received_success_;
     std::string sent_timestamp_;
     std::chrono::steady_clock::time_point start_time_;
     geometry_msgs::msg::PoseStamped sent_coord_;
@@ -999,6 +1035,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_ack_;
 };
+
 
 
 class IsRobotAtQuiz : public BT::StatefulActionNode

@@ -23,6 +23,7 @@ class ImposterNode(Node):
 
         # Connect to the web server
         self.sio.connect('http://robotoo-interface.local/', retry=True)
+        print("Succesvol geconnecteerd met webserver (QSTBT)
 
     def publish_message(self, message):
         """Publishes a message to the 'quiz' topic"""

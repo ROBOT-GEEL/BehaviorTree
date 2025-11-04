@@ -44,7 +44,7 @@
                     <robotAtPerson/>
                     <CheckStartButton timeout="1.0"/>
                     <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
-                    <IsRobotAtQuiz timeout="10.0" sent_timestamp="{quiz_timestamp}" />
+                    <IsRobotAtQuiz timeout="200.0" sent_timestamp="{quiz_timestamp}" />
                     <RobotAtQuiz/>
                     <WaitQuizToEnd timeout="5.0"/>
 
