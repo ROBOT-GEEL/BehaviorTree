@@ -40,7 +40,7 @@
                     <RobotExplore/>
                     <CheckCoordAvailable/>
                     <MoveToVisitor/>
-                    <check_ArrivedAtPerson timeout="1.0"/>
+                    <check_ArrivedAtPerson timeout="10.0"/>
                     <robotAtPerson/>
                     <CheckStartButton timeout="1.0"/>
                     <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />

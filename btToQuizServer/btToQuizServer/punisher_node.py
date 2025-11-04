@@ -23,10 +23,10 @@ class PunisherNode(Node):
 
         # Hier moet in toekomst nog check worden toegevoegd of verbinding succesvol kan worden gemaakt (en wordt onderhouden)
         print("Proberen om verbinding op te zetten")
-        '''
+       
         self.sio = socketio.Client()
-        self.sio.connect('http://192.168.137.135:80', retry=True)
-        '''
+        self.sio.connect('http://192.168.137.69:80', retry=True)
+       
         print("Verbinding succesvol")
 
     def rpi_callback(self, msg):
@@ -36,14 +36,14 @@ class PunisherNode(Node):
         
         if msg.data == "RobotExplore":
             print("robot is exploring")
-            #self.sio.emit("robot-explore")
+            self.sio.emit("robot-explore")
         elif msg.data == "RobotGoToVisitors":
             print("Path has been created, robot will be driving")
-            #self.sio.emit("robot-go-to-visitors")
+            self.sio.emit("robot-go-to-visitors")
         elif msg.data == ("RobotArrivedAtVisitors"):
             print("RobotArrivedAtVisistors")
 
-            #self.sio.emit("robot-arrived-at-visitors")
+            self.sio.emit("robot-arrived-at-visitors")
 
 
 
