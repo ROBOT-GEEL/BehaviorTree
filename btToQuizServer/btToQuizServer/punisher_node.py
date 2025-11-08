@@ -25,7 +25,7 @@ class PunisherNode(Node):
         print("Proberen om verbinding op te zetten")
        
         self.sio = socketio.Client()
-        self.sio.connect('http://192.168.137.69:80', retry=True)
+        self.sio.connect('http://192.168.50.225:80', retry=True)
        
         print("Verbinding succesvol")
 

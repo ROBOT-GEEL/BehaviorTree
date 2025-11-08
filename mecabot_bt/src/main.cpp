@@ -838,10 +838,12 @@ public:
     {
         node_= rclcpp::Node::make_shared("btCheckStartButton");
         sub_ = node_->create_subscription<std_msgs::msg::String>(
-            "/quiz_status", 10,
+            "/quiz", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
-                if(msg->data == "on_drive_to_quiz_location") {
+       
+                if(msg->data == "drive_to_quiz_location") {
+                    std::cout << "drive_to_quiz goed ontvangen";
                     received_ = true;
                 }
             });
@@ -864,10 +866,12 @@ public:
     BT::NodeStatus onRunning() override {
         auto elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start_time_).count();
+         rclcpp::spin_some(node_);
+
 
         if (received_) {
             std::cout << "[" << name() << "] Received 'on_drive_to_quiz_location', returning SUCCESS" << std::endl;
-            return BT::NodeStatus::FAILURE; // geinverteerd om te kunnen testen !!!!!
+            return BT::NodeStatus::SUCCESS; // geinverteerd om te kunnen testen !!!!!
         }
 
         if (elapsed >= timeout_) {
@@ -903,7 +907,7 @@ public:
         pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
 
         sub_ack_ = node_->create_subscription<std_msgs::msg::String>(
-            "/driveCoordStatus", 10,
+            "/drive_to_coord_status", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
                 // Verwacht formaat: "<status>-<timestamp>-goal verzonden"
@@ -1052,6 +1056,8 @@ public:
             [this](std_msgs::msg::String::SharedPtr msg)
             {
                 last_received_msg_ = msg->data;
+                std::cout << "[IsRobotAtQuiz] Nieuw bericht ontvangen: " 
+                  << last_received_msg_ << std::endl;
             });
 
         pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
@@ -1191,10 +1197,93 @@ public:
 };
 
 
-class WaitQuizToEnd : public TimedCondition 
-{ 
-public: WaitQuizToEnd(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config) {} 
+class WaitQuizToEnd : public BT::StatefulActionNode
+{
+public:
+    WaitQuizToEnd(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config),
+          timeout_(30.0), received_(false)
+    {
+        node_ = rclcpp::Node::make_shared("btWaitQuizToEnd");
+
+        // Publisher voor status (zoals de andere nodes)
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+
+        // Subscriber om te luisteren naar quizstatus
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/quiz", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
+            {
+                if (msg->data == "quiz_finished" || msg->data == "quiz_inactive")
+                {
+                    received_ = true;
+                    last_msg_ = msg->data;
+                }
+            });
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return { BT::InputPort<double>("timeout") };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        received_ = false;
+        last_msg_.clear();
+
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 30.0; // default 30s
+
+        start_time_ = std::chrono::steady_clock::now();
+
+        std_msgs::msg::String msg;
+        msg.data = "WaitQuizToEnd";
+        pub_->publish(msg);
+
+        std::cout << "[WaitQuizToEnd] START waiting for 'quiz_finished' or 'quiz_inactive', timeout=" << timeout_ << "s" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+
+        if (received_)
+        {
+            std::cout << "[WaitQuizToEnd] Received '" << last_msg_ << "' -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        auto elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[WaitQuizToEnd] Timeout reached after " << elapsed << "s -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        std::cout << "[WaitQuizToEnd] Still waiting... (" << elapsed << "s)" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[WaitQuizToEnd] HALTED" << std::endl;
+    }
+
+private:
+    double timeout_;
+    bool received_;
+    std::string last_msg_;
+    std::chrono::steady_clock::time_point start_time_;
+
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
 };
+
 
 // -------------------------
 // MAIN

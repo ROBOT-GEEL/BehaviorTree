@@ -22,8 +22,8 @@ class ImposterNode(Node):
         self.sio.on('drive_to_quiz_location', self.on_drive_to_quiz_location)
 
         # Connect to the web server
-        self.sio.connect('http://robotoo-interface.local/', retry=True)
-        print("Succesvol geconnecteerd met webserver (QSTBT)
+        self.sio.connect('http://192.168.50.225:80', retry=True)
+        print("Succesvol geconnecteerd met webserver (QSTBT)")
 
     def publish_message(self, message):
         """Publishes a message to the 'quiz' topic"""
