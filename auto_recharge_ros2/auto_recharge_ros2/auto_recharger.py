@@ -583,6 +583,7 @@ Ctrl+C/c:关闭自动回充功能并退出.    Ctrl+C/c:Quit the program.
 						self.Pub_NavGoal_Cancel() # 取消导航
                         # BT: batterij laag, laden moet starten
 						self.publish_event("BATTERY-LOW")
+						time.sleep(4);
 
 						if 'akm' in self.robot['car_mode']:
 							self.chargeflag=2
