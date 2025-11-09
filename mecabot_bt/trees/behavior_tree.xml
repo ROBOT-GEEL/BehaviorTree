@@ -19,40 +19,45 @@
             <!-- Linkerkid: CheckCollision -->
             <CheckCollision/>
 
-            <!-- Rechterkid: bestaande MainFallback -->
-            <Fallback name="MainFallback">
+            <Fallback name="BatteryLowFallback">
 
-              <!-- Eerste tak: originele boom -->
+              <!-- Linkerkid: Parallel RootParallel -->
               <Parallel name="RootParallel" success_threshold="1" failure_threshold="1">
+                <!-- Linkerkid: BatteryOk -->
                 <BatteryOk/>
 
-                <ForceSuccess name="RightBranch">
-                  <Sequence name="MainSequence">
+                <!-- Rechterkind: ForceSuccess op de Fallback MainFallback -->
+                <ForceSuccess name="MainFallbackForceSuccess">
+                  <Fallback name="MainFallback">
+                    <!-- Linkerkind: MainSequence -->
+                    <Sequence name="MainSequence">
+                      <Fallback name="CheckWorkingZone">
+                        <InWorkingZone/>
+                        <Sequence name="GoToWorkAreaSequence">
+                          <MoveLocationWorkarea/>
+                          <Check_at_workarea timeout="1.0"/>
+                        </Sequence>
+                      </Fallback>
 
-                    <Fallback name="CheckWorkingZone">
-                      <InWorkingZone/>
-                      <Sequence name="GoToWorkAreaSequence">
-                        <MoveLocationWorkarea/>
-                        <Check_at_workarea timeout="1.0"/>
-                      </Sequence>
-                    </Fallback>
+                      <RobotExplore/>
+                      <CheckCoordAvailable/>
+                      <MoveToVisitor/>
+                      <check_ArrivedAtPerson timeout="10.0"/>
+                      <robotAtPerson/>
+                      <CheckStartButton timeout="10.0"/>
+                      <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
+                      <IsRobotAtQuiz timeout="200.0" sent_timestamp="{quiz_timestamp}" />
+                      <RobotAtQuiz/>
+                      <WaitQuizToEnd timeout="5.0"/>
+                    </Sequence>
 
-                    <RobotExplore/>
-                    <CheckCoordAvailable/>
-                    <MoveToVisitor/>
-                    <check_ArrivedAtPerson timeout="10.0"/>
-                    <robotAtPerson/>
-                    <CheckStartButton timeout="10.0"/>
-                    <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
-                    <IsRobotAtQuiz timeout="200.0" sent_timestamp="{quiz_timestamp}" />
-                    <RobotAtQuiz/>
-                    <WaitQuizToEnd timeout="5.0"/>
-
-                  </Sequence>
+                    <!-- Rechterkind van MainFallback -->
+                    <MainBTStopDrive stop_flag="false"/>
+                  </Fallback>
                 </ForceSuccess>
               </Parallel>
 
-              <!-- Tweede tak: aangepaste batterij fallback -->
+              <!-- Rechterkind: bestaande Battery fallback (GoToChargeFallback) -->
               <Fallback name="GoToChargeFallback">
                 <Sequence name="ChargingSequence">
                   <DriveToChargingStation timeout="5.0"/>

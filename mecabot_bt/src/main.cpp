@@ -548,7 +548,7 @@ public:
         pub_bt_->publish(bt_msg);
 
         std::cout << "[RobotExplore] Exploring environment (sim)" << std::endl;
-        return BT::NodeStatus::SUCCESS;
+        return BT::NodeStatus::FAILURE;
     }
 
 private:
@@ -1319,6 +1319,56 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
 };
 
+class MainBTStopDrive : public BT::StatefulActionNode
+{
+public:
+    MainBTStopDrive(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config)
+    {
+        node_ = rclcpp::Node::make_shared("btMainBTStopDrive");
+
+        // Publisher voor BT-status zoals bij andere nodes
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::OutputPort<bool>("stop_flag")  // BlackBoard output
+        };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        // Publiceer de node-status
+        std_msgs::msg::String msg;
+        msg.data = "MainBTStopDrive";
+        pub_->publish(msg);
+
+        // Zet de blackboard-flag op true
+        setOutput("stop_flag", true);
+
+        std::cout << "[MainBTStopDrive] Node reached, stop_flag set to TRUE, RUNNING" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        // Blijft gewoon RUNNING
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[MainBTStopDrive] HALTED" << std::endl;
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+};
+
+
 
 // -------------------------
 // MAIN
@@ -1356,7 +1406,8 @@ int main(int argc, char **argv)
     factory.registerNodeType<CheckNetworkError>("CheckNetworkError");
     factory.registerNodeType<StopNode>("StopNode");
     factory.registerNodeType<WaitDriving>("WaitDriving");
-    factory.registerNodeType<ForceSuccess>("RightBranch");
+    factory.registerNodeType<MainBTStopDrive>("MainBTStopDrive");
+    factory.registerNodeType<ForceSuccess>("MainFallbackForceSuccess");
 
     // laad boom uit XML
     auto tree = factory.createTreeFromFile("src/mecabot_bt/trees/behavior_tree.xml");
