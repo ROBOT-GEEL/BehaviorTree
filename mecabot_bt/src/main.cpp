@@ -209,7 +209,7 @@ public:
     BT::NodeStatus onRunning() override
     {
         // Simuleer dat de batterij afneemt
-        level_ -= 0.0;
+        level_ -= 5.0;
         std::cout << "[BatteryOk] Battery level = " << level_ << "% -> RUNNING" << std::endl;
 
         if (level_ < 30.0)
@@ -577,6 +577,59 @@ public:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
+
+class CheckMainBTErrorState : public BT::SyncActionNode
+{
+public:
+    CheckMainBTErrorState(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::SyncActionNode(name, config)
+    {
+        node_ = rclcpp::Node::make_shared("btCheckMainBTErrorState");
+
+        // Publisher voor BT-status zoals bij andere nodes
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+    }
+
+    // BlackBoard input-port
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::InputPort<bool>("stop_flag")  // lees de flag van MainBTStopDrive
+        };
+    }
+
+    BT::NodeStatus tick() override
+    {
+        // Publiceer node-status
+        std_msgs::msg::String msg;
+        msg.data = "CheckMainBTErrorState";
+        pub_->publish(msg);
+
+        // Lees de blackboard-flag
+        bool stop_flag = false;
+        if (!getInput("stop_flag", stop_flag))
+        {
+            std::cout << "[CheckMainBTErrorState] stop_flag niet gevonden op blackboard, default FALSE" << std::endl;
+            stop_flag = false;
+        }
+
+        if (stop_flag)
+        {
+            std::cout << "[CheckMainBTErrorState] stop_flag TRUE -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+        else
+        {
+            std::cout << "[CheckMainBTErrorState] stop_flag FALSE -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+};
+
 
 class MoveToVisitor : public BT::SyncActionNode
 {
@@ -1394,7 +1447,7 @@ int main(int argc, char **argv)
     factory.registerNodeType<IsRobotAtQuiz>("IsRobotAtQuiz");
     factory.registerNodeType<RobotAtQuiz>("RobotAtQuiz");
     factory.registerNodeType<WaitQuizToEnd>("WaitQuizToEnd");
-    factory.registerNodeType<BatteryOk>("BatteryOk");
+    factory.registerNodeType<BatterySimOk>("BatteryOk");
     factory.registerNodeType<InChargingStation>("InChargingStation");
     factory.registerNodeType<DriveToChargingStation>("DriveToChargingStation");
     factory.registerNodeType<StatusDriveToChargingDock>("StatusDriveToChargingDock");
@@ -1408,6 +1461,7 @@ int main(int argc, char **argv)
     factory.registerNodeType<WaitDriving>("WaitDriving");
     factory.registerNodeType<MainBTStopDrive>("MainBTStopDrive");
     factory.registerNodeType<ForceSuccess>("MainFallbackForceSuccess");
+    factory.registerNodeType<CheckMainBTErrorState>("CheckMainBTErrorState");
 
     // laad boom uit XML
     auto tree = factory.createTreeFromFile("src/mecabot_bt/trees/behavior_tree.xml");

@@ -52,7 +52,7 @@
                     </Sequence>
 
                     <!-- Rechterkind van MainFallback -->
-                    <MainBTStopDrive stop_flag="false"/>
+                    <MainBTStopDrive stop_flag="{stop_flag}"/>
                   </Fallback>
                 </ForceSuccess>
               </Parallel>
@@ -60,6 +60,7 @@
               <!-- Rechterkind: bestaande Battery fallback (GoToChargeFallback) -->
               <Fallback name="GoToChargeFallback">
                 <Sequence name="ChargingSequence">
+                  <CheckMainBTErrorState stop_flag="{stop_flag}"/>
                   <DriveToChargingStation timeout="5.0"/>
                   <StatusDriveToChargingDock timeout="5.0"/>
                   <IsRobotCharging timeout="200"/>
