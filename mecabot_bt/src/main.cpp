@@ -1174,12 +1174,47 @@ private:
 };
 
 
-class BatteryCharged: public TimedCondition 
-{ 
-public: 
-     BatteryCharged(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
-     };
+class BatteryCharged : public TimedCondition
+{
+public:
+    BatteryCharged(const std::string &name, const BT::NodeConfiguration &config)
+        : TimedCondition(name, config)
+    {
+        // Node voor ROS2 publishers
+        node_ = rclcpp::Node::make_shared("btBatteryCharged");
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+    }
 
+    BT::NodeStatus onStart() override
+    {
+        // Eerste, roep de originele TimedCondition onStart aan om timer te starten
+        BT::NodeStatus status = TimedCondition::onStart();
+
+        // Publiceer de naam naar /BehaviorTreeNode
+        std_msgs::msg::String msg;
+        msg.data = "BatteryCharged";
+        pub_->publish(msg);
+
+        return status; // RUNNING
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        // Roep originele TimedCondition aan
+        BT::NodeStatus status = TimedCondition::onRunning();
+
+        // Optioneel: telkens bij tick de status publiceren
+        std_msgs::msg::String msg;
+        msg.data = "BatteryCharged";
+        pub_->publish(msg);
+
+        return status; // RUNNING of SUCCESS als timer afgelopen
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+};
 
 // -------------------------
 // Timer nodes (met timeout uit XML)
