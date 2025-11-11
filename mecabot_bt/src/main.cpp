@@ -1,5 +1,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "behaviortree_cpp_v3/bt_factory.h"
+#include "behaviortree_cpp_v3/decorator_node.h"
 #include <chrono>
 #include "std_msgs/msg/string.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -548,7 +549,7 @@ public:
         pub_bt_->publish(bt_msg);
 
         std::cout << "[RobotExplore] Exploring environment (sim)" << std::endl;
-        return BT::NodeStatus::FAILURE;
+        return BT::NodeStatus::SUCCESS;
     }
 
 private:
@@ -558,25 +559,7 @@ private:
 };
 
 
-class CheckCoordAvailable : public BT::SyncActionNode
-{
-public:
-    CheckCoordAvailable(const std::string &name) : BT::SyncActionNode(name, {}) {
-            node_ = rclcpp::Node::make_shared("btCheckCoordAvailable");
-        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-    }
-    BT::NodeStatus tick() override {
-        std::string state = "CheckCoordAvailable";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_->publish(msg);
-        std::cout << "[CheckCoordAvailable] Checking coordinate availability (sim)" << std::endl;
-        return BT::NodeStatus::SUCCESS;
-    }
-        private:
-    rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
-};
+
 
 class CheckMainBTErrorState : public BT::SyncActionNode
 {
@@ -631,39 +614,7 @@ private:
 };
 
 
-class MoveToVisitor : public BT::SyncActionNode
-{
-public:
-    MoveToVisitor(const std::string &name) : BT::SyncActionNode(name, {}) {
-        node_ = rclcpp::Node::make_shared("btMoveToVisitor");
-        
-        // Publisher voor BehaviorTreeNode
-        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 
-        // Extra publisher voor quiz status (zoals bij RobotExplore)
-        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
-    }
-
-    BT::NodeStatus tick() override {
-        std::string bt_state = "MoveToVisitor";
-        std_msgs::msg::String bt_msg;
-        bt_msg.data = bt_state;
-        pub_bt_->publish(bt_msg);
-
-        std::string quiz_state = "RobotGoToVisitors";
-        std_msgs::msg::String quiz_msg;
-        quiz_msg.data = quiz_state;
-        pub_quiz_->publish(quiz_msg);
-
-        std::cout << "[MoveToVisitor] Moving to visitor (sim), published to /rpitopic and /BehaviorTreeNode" << std::endl;
-        return BT::NodeStatus::SUCCESS;
-    }
-
-private:
-    rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_quiz_;
-};
 
 
 class StatusDriveToChargingDock : public BT::StatefulActionNode
@@ -854,98 +805,209 @@ private:
 };
 
 
-class robotAtPerson : public BT::SyncActionNode
+class CheckingNearbyVisitors : public BT::StatefulActionNode
 {
 public:
-    robotAtPerson(const std::string &name) : BT::SyncActionNode(name, {}) {
-    node_ = rclcpp::Node::make_shared("btRobotAtPerson");
-    pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
-            pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-}
-    BT::NodeStatus tick() override {
-    	std::string state = "RobotArrivedAtVisitors";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_quiz_->publish(msg);
-        
-        std::string bt_state = "robotAtPerson";
-        std_msgs::msg::String bt_msg;
-        bt_msg.data = bt_state;
-        pub_bt_->publish(bt_msg);
-
-        std::cout << "[robotAtPerson] robot arrived at person" << std::endl;
-        return BT::NodeStatus::SUCCESS;
-    }
-    private:
-    rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_quiz_;
-        rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;    // nieuwe publisher
-
-};
-//VOOR TESTEN ZAL CHECKSTARTBUTTON SUCCES GEVEN ALS NODE NIET JUISTE STATUS GEEFT NA 10 SECONDEN
-class CheckStartButton : public BT::StatefulActionNode
-{
-public:
-    CheckStartButton(const std::string &name, const BT::NodeConfiguration &config)
-        : BT::StatefulActionNode(name, config), timeout_(10.0), received_(false)
+    CheckingNearbyVisitors(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config), success_count_(0)
     {
-        node_= rclcpp::Node::make_shared("btCheckStartButton");
-        sub_ = node_->create_subscription<std_msgs::msg::String>(
+        node_ = rclcpp::Node::make_shared("btCheckingNearbyVisitors");
+
+        // Publisher (zoals de andere nodes)
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+
+        // Subscriber naar FollowMeTopic
+        sub_ = node_->create_subscription<std_msgs::msg::Float32>(
+            "/FollowMeTopic", 10,
+            [this](std_msgs::msg::Float32::SharedPtr msg)
+            {
+                latest_value_ = msg->data;
+            });
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return {};
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        success_count_ = 0;
+        latest_value_ = 999.0; // Initieel onrealistische waarde
+        std_msgs::msg::String msg;
+        msg.data = "CheckingNearbyVisitors";
+        pub_->publish(msg);
+        std::cout << "[CheckingNearbyVisitors] START" << std::endl;
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+
+        std::cout << "[CheckingNearbyVisitors] Measured distance: " << latest_value_ << std::endl;
+        
+
+        if (latest_value_ < 2.0)
+        {
+            success_count_++;
+            std::cout << "  Below 2.0 (" << success_count_ << "/3)" << std::endl;
+        }
+        else
+        {
+            success_count_ = 0; // reset bij overschrijding
+        }
+
+        if (success_count_ >= 3)
+        {
+            std::cout << "[CheckingNearbyVisitors] 3 consecutive measurements < 2.0 -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[CheckingNearbyVisitors] HALTED" << std::endl;
+    }
+
+private:
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_;
+    float latest_value_;
+    int success_count_;
+};
+ 
+
+
+class ArrivedAtVisitors : public BT::StatefulActionNode
+{
+public:
+    ArrivedAtVisitors(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config),
+          timeout_(15.0), received_drive_to_quiz_(false), overlimit_count_(0), follow_value_(0.0)
+    {
+        node_ = rclcpp::Node::make_shared("btArrivedAtVisitors");
+
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+
+        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
+
+        sub_follow_ = node_->create_subscription<std_msgs::msg::Float32>(
+            "/FollowMeTopic", 10,
+            [this](std_msgs::msg::Float32::SharedPtr msg)
+            {
+                follow_value_ = msg->data;
+            });
+
+        sub_quiz_ = node_->create_subscription<std_msgs::msg::String>(
             "/quiz", 10,
             [this](std_msgs::msg::String::SharedPtr msg)
             {
-       
-                if(msg->data == "drive_to_quiz_location") {
-                    std::cout << "drive_to_quiz goed ontvangen";
-                    received_ = true;
+                if (msg->data == "drive_to_quiz_location")
+                {
+                    std::cout << "[ArrivedAtVisitors] Received 'drive_to_quiz_location'" << std::endl;
+                    received_drive_to_quiz_ = true;
                 }
             });
     }
 
-    static BT::PortsList providedPorts() {
+    static BT::PortsList providedPorts()
+    {
         return { BT::InputPort<double>("timeout") };
     }
 
-    BT::NodeStatus onStart() override {
-        if (!getInput<double>("timeout", timeout_)) {
-            timeout_ = 10.0; // default
-        }
+    BT::NodeStatus onStart() override
+    {
+        overlimit_count_ = 0;
+        received_drive_to_quiz_ = false;
+        follow_value_ = 0.0;
+
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 15.0;
+
         start_time_ = std::chrono::steady_clock::now();
-        received_ = false;
-        std::cout << "[" << name() << "] START waiting for start button or drive_to_quiz, timeout = " << timeout_ << "s" << std::endl;
+
+        std_msgs::msg::String msg_bt_;
+        msg_bt_.data = "ArrivedAtVisitors";
+        pub_bt_->publish(msg_bt_);
+
+        std_msgs::msg::String msg_quiz_;
+        msg_quiz_.data = "RobotArrivedAtVisitors";
+        pub_quiz_->publish(msg_quiz_);
+
+        std::cout << "[ArrivedAtVisitors] START (timeout=" << timeout_ << "s)" << std::endl;
         return BT::NodeStatus::RUNNING;
     }
 
-    BT::NodeStatus onRunning() override {
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+
+
+        if (received_drive_to_quiz_)
+        {
+            std::cout << "[ArrivedAtVisitors] 'drive_to_quiz_location' ontvangen -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+
+        if (follow_value_ > 3.0)
+        {
+            overlimit_count_++;
+        }
+        else
+        {
+            overlimit_count_ = 0;
+        }
+
+        if (overlimit_count_ >= 3)
+        {
+            std::cout << "[ArrivedAtVisitors] 3 metingen > 3.0 -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+
         auto elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start_time_).count();
-         rclcpp::spin_some(node_);
 
-
-        if (received_) {
-            std::cout << "[" << name() << "] Received 'on_drive_to_quiz_location', returning SUCCESS" << std::endl;
-            return BT::NodeStatus::SUCCESS; // geinverteerd om te kunnen testen !!!!!
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[ArrivedAtVisitors] Timeout (" << elapsed << "s) -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
         }
 
-        if (elapsed >= timeout_) {
-            std::cout << "[" << name() << "] Timeout reached, returning FAILURE" << std::endl;
-            return BT::NodeStatus::SUCCESS;  // geinverteerd om te kunnen testen !!!!!
-        }
+        std::cout << "[ArrivedAtVisitors] Running... distance=" << follow_value_
+                  << " overlimit_count=" << overlimit_count_ << std::endl;
 
         return BT::NodeStatus::RUNNING;
     }
 
-    void onHalted() override {
-        std::cout << "[" << name() << "] HALTED" << std::endl;
+    void onHalted() override
+    {
+        std::cout << "[ArrivedAtVisitors] HALTED" << std::endl;
     }
 
 private:
     double timeout_;
-    bool received_;
+    bool received_drive_to_quiz_;
+    int overlimit_count_;
+    float follow_value_;
     std::chrono::steady_clock::time_point start_time_;
+
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_quiz_;
+
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_follow_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_quiz_;
 };
+
+
+
+
 
 
 class DriveQuizLocation : public BT::StatefulActionNode
@@ -1278,11 +1340,6 @@ public:
      Check_at_workarea(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
      };
      
-class check_ArrivedAtPerson : public TimedCondition 
-{ 
-public: 
-      check_ArrivedAtPerson(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config) {} 
-};
 
 
 class WaitQuizToEnd : public BT::StatefulActionNode
@@ -1421,6 +1478,110 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
 
+class StartDrivingToPeople : public BT::StatefulActionNode
+{
+public:
+    StartDrivingToPeople(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config), timeout_(5.0)  // default 5 seconden
+    {
+        node_ = rclcpp::Node::make_shared("btStartDrivingToPeople");
+
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+        pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return { BT::InputPort<double>("timeout") };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        getInput("timeout", timeout_);
+
+        start_time_ = std::chrono::steady_clock::now();
+
+        // Publish naar BehaviorTreeNode
+        std_msgs::msg::String bt_msg;
+        bt_msg.data = "StartDrivingToPeople";
+        pub_bt_->publish(bt_msg);
+
+
+        std_msgs::msg::String quiz_msg;
+        quiz_msg.data = "RobotGoToVisitors";
+        pub_quiz_->publish(quiz_msg);
+
+        std::cout << "[StartDrivingToPeople] Started driving to people, timeout=" << timeout_ << "s" << std::endl;
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[StartDrivingToPeople] Timeout reached -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[StartDrivingToPeople] HALTED" << std::endl;
+    }
+
+private:
+    double timeout_;
+    std::chrono::steady_clock::time_point start_time_;
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_quiz_;
+};
+
+
+
+
+class LoopSequence : public BT::DecoratorNode
+{
+public:
+    LoopSequence(const std::string& name, const BT::NodeConfiguration& config)
+        : BT::DecoratorNode(name, config) {}
+
+    static BT::PortsList providedPorts() { return {}; }
+
+    BT::NodeStatus tick() override
+    {
+        while (true)
+        {
+            const BT::NodeStatus child_state = child_node_->executeTick();
+
+            if (child_state == BT::NodeStatus::RUNNING)
+            {
+                return BT::NodeStatus::RUNNING;
+            }
+            else if (child_state == BT::NodeStatus::SUCCESS)
+            {
+                return BT::NodeStatus::SUCCESS; // stop met herhalen
+            }
+            else if (child_state == BT::NodeStatus::FAILURE)
+            {
+                std::cout << "[LoopSequence] Child failed, restarting sequence..." << std::endl;
+                child_node_->halt();  // reset child
+                continue;             // herhaal sequence
+            }
+        }
+    }
+
+    void halt() override
+    {
+        child_node_->halt();
+        setStatus(BT::NodeStatus::IDLE);
+    }
+};
 
 
 // -------------------------
@@ -1438,16 +1599,16 @@ int main(int argc, char **argv)
     factory.registerNodeType<MoveLocationWorkarea>("MoveLocationWorkarea");
     factory.registerNodeType<Check_at_workarea>("Check_at_workarea");
     factory.registerNodeType<RobotExplore>("RobotExplore");
-    factory.registerNodeType<CheckCoordAvailable>("CheckCoordAvailable");
-    factory.registerNodeType<MoveToVisitor>("MoveToVisitor");
-    factory.registerNodeType<check_ArrivedAtPerson>("check_ArrivedAtPerson");
-    factory.registerNodeType<robotAtPerson>("robotAtPerson");
-    factory.registerNodeType<CheckStartButton>("CheckStartButton");
+    factory.registerNodeType<StartDrivingToPeople>("StartDrivingToPeople");
+    factory.registerNodeType<CheckingNearbyVisitors>("CheckingNearbyVisitors");
+
+    factory.registerNodeType<ArrivedAtVisitors>("ArrivedAtVisitors");
+
     factory.registerNodeType<DriveQuizLocation>("DriveQuizLocation");
     factory.registerNodeType<IsRobotAtQuiz>("IsRobotAtQuiz");
     factory.registerNodeType<RobotAtQuiz>("RobotAtQuiz");
     factory.registerNodeType<WaitQuizToEnd>("WaitQuizToEnd");
-    factory.registerNodeType<BatterySimOk>("BatteryOk");
+    factory.registerNodeType<BatteryOk>("BatteryOk");
     factory.registerNodeType<InChargingStation>("InChargingStation");
     factory.registerNodeType<DriveToChargingStation>("DriveToChargingStation");
     factory.registerNodeType<StatusDriveToChargingDock>("StatusDriveToChargingDock");
@@ -1462,6 +1623,8 @@ int main(int argc, char **argv)
     factory.registerNodeType<MainBTStopDrive>("MainBTStopDrive");
     factory.registerNodeType<ForceSuccess>("MainFallbackForceSuccess");
     factory.registerNodeType<CheckMainBTErrorState>("CheckMainBTErrorState");
+    factory.registerNodeType<LoopSequence>("LoopSequence");
+
 
     // laad boom uit XML
     auto tree = factory.createTreeFromFile("src/mecabot_bt/trees/behavior_tree.xml");
