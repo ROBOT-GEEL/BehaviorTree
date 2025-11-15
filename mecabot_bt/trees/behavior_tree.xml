@@ -32,14 +32,14 @@
                     <!-- Linkerkind: MainSequence -->
                     <Sequence name="MainSequence">
                       <Fallback name="CheckWorkingZone">
-                        <InWorkingZone/>
+                        <InWorkingZone robotLocation="{robotLocation}"/>
                         <Sequence name="GoToWorkAreaSequence">
                           <MoveLocationWorkarea/>
                           <Check_at_workarea timeout="1.0"/>
                         </Sequence>
                       </Fallback>
 
-                      <RobotExplore/>
+                      <RobotExplore robotLocation="{robotLocation}"/>
 			<LoopSequence name="LoopSequence">
 				<Sequence name="FollowMeSequence">
 				    <StartDrivingToPeople timeout="5.0"/>
@@ -50,7 +50,7 @@
 
                       <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
                       <IsRobotAtQuiz timeout="200.0" sent_timestamp="{quiz_timestamp}" />
-                      <RobotAtQuiz/>
+                      <RobotAtQuiz robotLocation="{robotLocation}"/>
                       <WaitQuizToEnd timeout="5.0"/>
                     </Sequence>
 
@@ -67,7 +67,7 @@
                   <DriveToChargingStation timeout="5.0"/>
                   <StatusDriveToChargingDock timeout="5.0"/>
                   <IsRobotCharging timeout="200"/>
-                  <IsBatteryFull/>
+                  <IsBatteryFull robotLocation="{robotLocation}"/>
                   <BatteryCharged timeout="5"/>
                 </Sequence>
                 <BatteryStopDrive/>

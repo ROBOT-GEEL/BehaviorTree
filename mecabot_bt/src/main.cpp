@@ -346,17 +346,39 @@ protected:
 class InWorkingZone : public BT::SyncActionNode
 {
 public:
-    InWorkingZone(const std::string &name) : BT::SyncActionNode(name, {}) {
+    InWorkingZone(const std::string& name, const BT::NodeConfiguration& config)
+        : BT::SyncActionNode(name, config) {
        node_ = rclcpp::Node::make_shared("btInWorkingZone");
        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
        }
+
+        static BT::PortsList providedPorts()
+    {
+        return { BT::InputPort<std::string>("robotLocation") };
+    }
+
     BT::NodeStatus tick() override {
+
+        std::string location;
+        if (!getInput("robotLocation", location)) {
+            std::cerr << "[InWorkingZone] Geen robotLocation gevonden op blackboard!\n";
+            return BT::NodeStatus::FAILURE;
+        }
+
+        std::cout << "[InWorkingZone] robotLocation gevonden: " << location << std::endl;
+        
         std::cout << "[InWorkingZone] Checking if in work zone (sim)" << std::endl;
         std::string state = "InWorkingZone";
     	std_msgs::msg::String msg;
         msg.data = state;
         pub_->publish(msg);
-        return BT::NodeStatus::FAILURE;
+       
+
+        if (location == "WORKING") {
+            return BT::NodeStatus::SUCCESS;
+        } else {
+            return BT::NodeStatus::FAILURE;
+        }
     }
         private:
     rclcpp::Node::SharedPtr node_;
@@ -530,14 +552,25 @@ public:
 class RobotExplore : public BT::SyncActionNode
 {
 public:
-    RobotExplore(const std::string &name) : BT::SyncActionNode(name, {}) {
+    RobotExplore(const std::string& name, const BT::NodeConfiguration& config)
+        : BT::SyncActionNode(name, config) {
     node_ = rclcpp::Node::make_shared("btRobotExplore");
     pub_quiz_ = node_->create_publisher<std_msgs::msg::String>("/rpitopic", 10);
     pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 
 
     }
+
+        static BT::PortsList providedPorts()
+    {
+        return { BT::OutputPort<std::string>("robotLocation") };
+    }
+
     BT::NodeStatus tick() override {
+
+        setOutput("robotLocation", "WORKING");
+
+
     	std::string state = "RobotExplore";
     	std_msgs::msg::String msg;
         msg.data = state;
@@ -773,10 +806,15 @@ public:
             });
     }
 
-    static BT::PortsList providedPorts() { return {}; }
+        static BT::PortsList providedPorts()
+    {
+        return { BT::OutputPort<std::string>("robotLocation") };
+    }
+
 
     BT::NodeStatus onStart() override
     {
+        setOutput("robotLocation", "CHARGING");
         rclcpp::spin_some(node_);
         if (last_event_ == "CHARGING-COMPLETED")
         {
@@ -843,10 +881,9 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+    	
         rclcpp::spin_some(node_);
-
         std::cout << "[CheckingNearbyVisitors] Measured distance: " << latest_value_ << std::endl;
-        
 
         if (latest_value_ < 2.0)
         {
@@ -1063,6 +1100,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
         if (elapsed >= timeout_)
@@ -1169,6 +1207,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+
         rclcpp::spin_some(node_);
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
@@ -1214,7 +1253,8 @@ private:
 class RobotAtQuiz : public BT::SyncActionNode
 {
 public:
-    RobotAtQuiz(const std::string &name) : BT::SyncActionNode(name, {}) {
+    RobotAtQuiz(const std::string& name, const BT::NodeConfiguration& config)
+        : BT::SyncActionNode(name, config) {
         node_ = rclcpp::Node::make_shared("bt_robot_at_quiz_node");
 
         // Bestaande publisher behouden
@@ -1224,7 +1264,15 @@ public:
         pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
     }
 
+        static BT::PortsList providedPorts()
+    {
+        return { BT::OutputPort<std::string>("robotLocation") };
+    }
+
+
     BT::NodeStatus tick() override {
+
+        setOutput("robotLocation", "QUIZ");
 
         std::string state = "robot-arrived-at-quiz-location";
         std_msgs::msg::String msg;
@@ -1351,6 +1399,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+
         rclcpp::spin_some(node_);
 
         if (received_)
@@ -1477,6 +1526,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+
         auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
 
         if (elapsed >= timeout_)
