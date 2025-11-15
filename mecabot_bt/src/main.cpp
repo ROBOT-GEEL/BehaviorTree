@@ -529,25 +529,85 @@ private:
 
 
 
-class DriveWorkArea : public BT::SyncActionNode
+class DriveWorkArea : public BT::StatefulActionNode
 {
 public:
-    DriveWorkArea(const std::string &name) : BT::SyncActionNode(name, {}) {
-            node_ = rclcpp::Node::make_shared("btDriveWorkArea");
-        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
-}
-    BT::NodeStatus tick() override {
-        std::string state = "DriveWorkArea";
-    	std_msgs::msg::String msg;
-        msg.data = state;
-        pub_->publish(msg);
-        std::cout << "[DriveWorkArea] Moving to work area (sim)" << std::endl;
-        return BT::NodeStatus::SUCCESS;
+    DriveWorkArea(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config)
+    {
+        node_ = rclcpp::Node::make_shared("btDriveWorkArea");
+
+        pub_bt_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+        pub_coord_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>("/btDriveCoord", 10);
     }
-        private:
+
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::InputPort<double>("timeout"),
+            BT::OutputPort<std::string>("workarea_timestamp")
+        };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        // Publish BT node naam
+        std_msgs::msg::String bt_msg;
+        bt_msg.data = "DriveWorkArea";
+        pub_bt_->publish(bt_msg);
+
+        sent_coord_.header.stamp = node_->get_clock()->now();
+        sent_coord_.header.frame_id = "map";
+        sent_coord_.pose.position.x = 20.0;  
+        sent_coord_.pose.position.y = 10.0;  
+        sent_coord_.pose.position.z = 0.0;
+        sent_coord_.pose.orientation.w = 0.0;
+        pub_coord_->publish(sent_coord_);
+
+        // Timestamp opslaan en op blackboard
+        sent_timestamp_ = std::to_string(sent_coord_.header.stamp.sec) + "." +
+                          std::to_string(sent_coord_.header.stamp.nanosec);
+        setOutput("workarea_timestamp", sent_timestamp_);
+
+        std::cout << "[DriveWorkArea] Published coordinate at timestamp: " << sent_timestamp_ << std::endl;
+
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 5.0;
+
+        start_time_ = std::chrono::steady_clock::now();
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[DriveWorkArea] Timeout (" << timeout_ << "s) -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[DriveWorkArea] HALTED" << std::endl;
+    }
+
+private:
+    double timeout_;
+    std::string sent_timestamp_;
+    std::chrono::steady_clock::time_point start_time_;
+    geometry_msgs::msg::PoseStamped sent_coord_;
+
     rclcpp::Node::SharedPtr node_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_bt_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_coord_;
 };
+
 
 class RobotExplore : public BT::SyncActionNode
 {
@@ -1338,15 +1398,125 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
 };
 
-// -------------------------
-// Timer nodes (met timeout uit XML)
-// -------------------------
-class IsRobotAtWorkArea : public TimedCondition 
-{ 
-public: 
-     IsRobotAtWorkArea (const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
-     };
-     
+class IsRobotAtWorkArea : public BT::StatefulActionNode
+{
+public:
+    IsRobotAtWorkArea(const std::string &name, const BT::NodeConfiguration &config)
+        : BT::StatefulActionNode(name, config), timeout_(10.0)
+    {
+        node_ = rclcpp::Node::make_shared("btIsRobotAtWorkArea");
+
+        sub_ = node_->create_subscription<std_msgs::msg::String>(
+            "/drive_to_coord_status", 10,
+            [this](std_msgs::msg::String::SharedPtr msg)
+            {
+                std::string data = msg->data;
+                std::cout << "[IsRobotAtWorkArea] Ontvangen bericht: " << data << std::endl;
+
+                // Split op '-'
+                std::vector<std::string> parts;
+                std::stringstream ss(data);
+                std::string segment;
+                while (std::getline(ss, segment, '-'))
+                {
+                    parts.push_back(segment);
+                }
+
+                if (parts.size() < 2)
+                    return;
+
+                std::string status_code = parts[0];
+                std::string recv_timestamp = parts[1];
+
+                // Eerste 10 cijfers van timestamp vergelijken
+                std::string expected_prefix = sent_timestamp_.substr(0, 10);
+                std::string recv_prefix = recv_timestamp.substr(0, 10);
+
+                if (recv_prefix == expected_prefix)
+                {
+                    if (status_code == "04")
+                        received_success_ = true;
+                    else if (status_code == "05" || status_code == "06" || status_code == "07")
+                        received_failure_ = true;
+                }
+            });
+
+        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
+    }
+
+    static BT::PortsList providedPorts()
+    {
+        return {
+            BT::InputPort<double>("timeout"),
+            BT::InputPort<std::string>("workarea_timestamp")
+        };
+    }
+
+    BT::NodeStatus onStart() override
+    {
+        received_success_ = false;
+        received_failure_ = false;
+        start_time_ = std::chrono::steady_clock::now();
+
+        if (!getInput<double>("timeout", timeout_))
+            timeout_ = 10.0;
+
+        if (!getInput<std::string>("workarea_timestamp", sent_timestamp_))
+            std::cout << "[IsRobotAtWorkArea] Geen timestamp ontvangen!" << std::endl;
+        else
+            std::cout << "[IsRobotAtWorkArea] Verwachte timestamp = " << sent_timestamp_ << std::endl;
+
+        // BT node naam publiceren
+        std_msgs::msg::String msg;
+        msg.data = "IsRobotAtWorkArea";
+        pub_->publish(msg);
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    BT::NodeStatus onRunning() override
+    {
+        rclcpp::spin_some(node_);
+        auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+
+        if (received_success_)
+        {
+            std::cout << "[IsRobotAtWorkArea] Successtatus ontvangen -> SUCCESS" << std::endl;
+            return BT::NodeStatus::SUCCESS;
+        }
+
+        if (received_failure_)
+        {
+            std::cout << "[IsRobotAtWorkArea] Faalstatus ontvangen -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        if (elapsed >= timeout_)
+        {
+            std::cout << "[IsRobotAtWorkArea] Timeout (" << timeout_ << "s) -> FAILURE" << std::endl;
+            return BT::NodeStatus::FAILURE;
+        }
+
+        return BT::NodeStatus::RUNNING;
+    }
+
+    void onHalted() override
+    {
+        std::cout << "[IsRobotAtWorkArea] HALTED" << std::endl;
+    }
+
+private:
+    double timeout_;
+    bool received_success_;
+    bool received_failure_;
+    std::chrono::steady_clock::time_point start_time_;
+    std::string sent_timestamp_;
+
+    rclcpp::Node::SharedPtr node_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_;
+};
+
 
 
 class WaitQuizToEnd : public BT::StatefulActionNode
