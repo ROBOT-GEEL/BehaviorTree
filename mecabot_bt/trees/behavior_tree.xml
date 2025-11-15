@@ -32,10 +32,10 @@
                     <!-- Linkerkind: MainSequence -->
                     <Sequence name="MainSequence">
                       <Fallback name="CheckWorkingZone">
-                        <InWorkingZone robotLocation="{robotLocation}"/>
+                        <CheckInWorkingZone robotLocation="{robotLocation}"/>
                         <Sequence name="GoToWorkAreaSequence">
-                          <MoveLocationWorkarea/>
-                          <Check_at_workarea timeout="1.0"/>
+                          <DriveWorkArea/>
+                          <IsRobotAtWorkArea  timeout="1.0"/>
                         </Sequence>
                       </Fallback>
 

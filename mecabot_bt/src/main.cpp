@@ -343,10 +343,10 @@ protected:
 };
 
 
-class InWorkingZone : public BT::SyncActionNode
+class CheckInWorkingZone : public BT::SyncActionNode
 {
 public:
-    InWorkingZone(const std::string& name, const BT::NodeConfiguration& config)
+    CheckInWorkingZone(const std::string& name, const BT::NodeConfiguration& config)
         : BT::SyncActionNode(name, config) {
        node_ = rclcpp::Node::make_shared("btInWorkingZone");
        pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
@@ -361,14 +361,14 @@ public:
 
         std::string location;
         if (!getInput("robotLocation", location)) {
-            std::cerr << "[InWorkingZone] Geen robotLocation gevonden op blackboard!\n";
+            std::cerr << "[CheckInWorkingZone] Geen robotLocation gevonden op blackboard!\n";
             return BT::NodeStatus::FAILURE;
         }
 
-        std::cout << "[InWorkingZone] robotLocation gevonden: " << location << std::endl;
+        std::cout << "[CheckInWorkingZone] robotLocation gevonden: " << location << std::endl;
         
-        std::cout << "[InWorkingZone] Checking if in work zone (sim)" << std::endl;
-        std::string state = "InWorkingZone";
+        std::cout << "[CheckInWorkingZone] Checking if in work zone (sim)" << std::endl;
+        std::string state = "CheckInWorkingZone";
     	std_msgs::msg::String msg;
         msg.data = state;
         pub_->publish(msg);
@@ -529,19 +529,19 @@ private:
 
 
 
-class MoveLocationWorkarea : public BT::SyncActionNode
+class DriveWorkArea : public BT::SyncActionNode
 {
 public:
-    MoveLocationWorkarea(const std::string &name) : BT::SyncActionNode(name, {}) {
-            node_ = rclcpp::Node::make_shared("btMoveLocationWorkarea");
+    DriveWorkArea(const std::string &name) : BT::SyncActionNode(name, {}) {
+            node_ = rclcpp::Node::make_shared("btDriveWorkArea");
         pub_ = node_->create_publisher<std_msgs::msg::String>("/BehaviorTreeNode", 10);
 }
     BT::NodeStatus tick() override {
-        std::string state = "MoveLocationWorkarea";
+        std::string state = "DriveWorkArea";
     	std_msgs::msg::String msg;
         msg.data = state;
         pub_->publish(msg);
-        std::cout << "[MoveLocationWorkarea] Moving to work area (sim)" << std::endl;
+        std::cout << "[DriveWorkArea] Moving to work area (sim)" << std::endl;
         return BT::NodeStatus::SUCCESS;
     }
         private:
@@ -1341,10 +1341,10 @@ private:
 // -------------------------
 // Timer nodes (met timeout uit XML)
 // -------------------------
-class Check_at_workarea: public TimedCondition 
+class IsRobotAtWorkArea : public TimedCondition 
 { 
 public: 
-     Check_at_workarea(const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
+     IsRobotAtWorkArea (const std::string &name, const BT::NodeConfiguration &config) : TimedCondition(name, config){} 
      };
      
 
@@ -1604,9 +1604,9 @@ int main(int argc, char **argv)
     // registreer nodes
     // < > geeft de naam van de c++ node, de (" ... ") geeft de naam van de node in de XML file waar je deze c++ code aan koppelt
 
-    factory.registerNodeType<InWorkingZone>("InWorkingZone");
-    factory.registerNodeType<MoveLocationWorkarea>("MoveLocationWorkarea");
-    factory.registerNodeType<Check_at_workarea>("Check_at_workarea");
+    factory.registerNodeType<CheckInWorkingZone>("CheckInWorkingZone");
+    factory.registerNodeType<DriveWorkArea>("DriveWorkArea");
+    factory.registerNodeType<IsRobotAtWorkArea >("IsRobotAtWorkArea");
     factory.registerNodeType<RobotExplore>("RobotExplore");
     factory.registerNodeType<StartDrivingToPeople>("StartDrivingToPeople");
     factory.registerNodeType<CheckingNearbyVisitors>("CheckingNearbyVisitors");
