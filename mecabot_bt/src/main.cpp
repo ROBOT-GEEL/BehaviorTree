@@ -916,7 +916,7 @@ public:
 
         // Subscriber naar FollowMeTopic
         sub_ = node_->create_subscription<std_msgs::msg::Float32>(
-            "/FollowMeTopic", 10,
+            "/target_distance", 10,
             [this](std_msgs::msg::Float32::SharedPtr msg)
             {
                 latest_value_ = msg->data;
