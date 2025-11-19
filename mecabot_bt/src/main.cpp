@@ -358,7 +358,7 @@ public:
     }
 
     BT::NodeStatus tick() override {
-
+         return BT::NodeStatus::SUCCESS;
         std::string location;
         if (!getInput("robotLocation", location)) {
             std::cerr << "[CheckInWorkingZone] Geen robotLocation gevonden op blackboard!\n";
@@ -941,7 +941,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
-    	
+
         rclcpp::spin_some(node_);
         std::cout << "[CheckingNearbyVisitors] Measured distance: " << latest_value_ << std::endl;
 
@@ -955,9 +955,9 @@ public:
             success_count_ = 0; // reset bij overschrijding
         }
 
-        if (success_count_ >= 3)
+        if (success_count_ >= 2)
         {
-            std::cout << "[CheckingNearbyVisitors] 3 consecutive measurements < 2.0 -> SUCCESS" << std::endl;
+            std::cout << "[CheckingNearbyVisitors] 2 consecutive measurements < 2.0 -> SUCCESS" << std::endl;
             return BT::NodeStatus::SUCCESS;
         }
 
@@ -1041,6 +1041,7 @@ public:
 
     BT::NodeStatus onRunning() override
     {
+
         rclcpp::spin_some(node_);
 
 
@@ -1229,6 +1230,9 @@ public:
                         received_success_ = true;
                     else if (status_code == "05" || status_code == "06" || status_code == "07")
                         received_failure_ = true;
+                        std::cout << "FAILURE ONTVANGEN";
+                        
+                   
                 }
             });
 
@@ -1809,7 +1813,7 @@ int main(int argc, char **argv)
     auto tree = factory.createTreeFromFile("src/mecabot_bt/trees/behavior_tree.xml");
 
     std::cout << "--- Starting BT in continuous mode ---" << std::endl;
-    rclcpp::Rate loop_rate(1.0); // 1 Hz tick = max rate
+    rclcpp::Rate loop_rate(2.0); 
 
     while (rclcpp::ok())
     {
