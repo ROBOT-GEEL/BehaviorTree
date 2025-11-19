@@ -1124,6 +1124,9 @@ public:
     {
         return {
             BT::InputPort<double>("timeout"),
+            BT::InputPort<double>("x"),
+            BT::InputPort<double>("y"),
+            BT::InputPort<double>("z"),
             BT::OutputPort<std::string>("sent_timestamp")
         };
     }
@@ -1138,9 +1141,16 @@ public:
         // Publish coordinate
         sent_coord_.header.stamp = node_->get_clock()->now();
         sent_coord_.header.frame_id = "map";
-        sent_coord_.pose.position.x = 5.0;
-        sent_coord_.pose.position.y = 2.5;
-        sent_coord_.pose.position.z = 0.0;
+
+        double x, y, z;
+        getInput("x", x);
+        getInput("y", y);
+        getInput("z", z);
+
+        sent_coord_.pose.position.x = x;
+        sent_coord_.pose.position.y = y;
+        sent_coord_.pose.position.z = z;
+
         sent_coord_.pose.orientation.w = 1.0;
         pub_coord_->publish(sent_coord_);
 
@@ -1740,6 +1750,7 @@ public:
     {
         while (true)
         {
+            return BT::NodeStatus::SUCCESS;
             const BT::NodeStatus child_state = child_node_->executeTick();
 
             if (child_state == BT::NodeStatus::RUNNING)

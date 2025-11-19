@@ -48,7 +48,12 @@
 				</Sequence>  
 			</LoopSequence>
 
-                      <DriveQuizLocation timeout="5.0" sent_timestamp="{quiz_timestamp}" />
+                      <DriveQuizLocation 
+			    timeout="5.0" 
+			    x="5.0" 
+			    y="12.5" 
+			    z="0.0"
+			    sent_timestamp="{quiz_timestamp}" />
                       <IsRobotAtQuiz timeout="200.0" sent_timestamp="{quiz_timestamp}" />
                       <RobotAtQuiz robotLocation="{robotLocation}"/>
                       <WaitQuizToEnd timeout="5.0"/>
