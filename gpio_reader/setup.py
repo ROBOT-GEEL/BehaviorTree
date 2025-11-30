@@ -14,7 +14,7 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'read_gpio_node = gpio_reader.read_gpio_node:main',
+            'read_gpio_node = gpio_reader.read_gpio:main',
         ],
     },
 )
